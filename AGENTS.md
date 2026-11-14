@@ -103,6 +103,8 @@ Read `DOX.md` before editing. This file is the repository-wide contract.
 - `.vscode/tasks.json` and `.vscode/launch.json` are shared project configuration. Keep personal editor settings ignored.
 - Follow Rachana's `node-terminal` development launch with `bun run dev`. Let the user open their browser; do not add browser-specific launch configurations without a request.
 - Media intake must include external OS file drag-and-drop and OS Open with/default-file associations into Shravanam. Internal extension-to-player rules are not requested. Optional persistent website routing must have an explicit enable and disable/restore flow; respect system user choices and preserve unrelated or newer handler settings. `FEATURE_PLAN.md` owns the implementation details and checks.
+- Library data must support cross-device synchronization, portable export/import, and recoverable backups, including history, texts, subtitles, and notes. `DATA_PLAN.md` owns the data design and open destination choices (self-hosting, WebDAV, and cloud storage). Do not select a provider or treat current playback stores as a sync-ready database without this design.
+- `src/data` implements the first shared record/archive format and browser IndexedDB adapter. Browser import/export does not back up native playback stores. Keep native adapter migration, file relinking, and synchronization as explicit remaining work.
 
 ## Startup and Offline Hosting
 
@@ -116,8 +118,9 @@ Read `DOX.md` before editing. This file is the repository-wide contract.
 
 ## Child DOX Index
 
+- `.github/AGENTS.md`: GitHub CI checks and web, desktop, and Android build artifacts.
 - `.vscode/AGENTS.md`: shared Bun tasks and the Rachana-style development-terminal launch.
-- `src/AGENTS.md`: shared Svelte interface, browser player, playback contract, and browser offline state.
+- `src/AGENTS.md`: shared interface, player contract, browser offline state, and library data hierarchy.
 - `desktop/AGENTS.md`: Bun host, native window, mpv playback, file intake, and persistent profile.
 - `native/AGENTS.md`: desktop OS integration and the Android native playback source hierarchy.
 - `scripts/AGENTS.md`: Bun builds, local server, desktop packaging, and mobile preparation.

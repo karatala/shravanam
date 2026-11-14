@@ -1,26 +1,35 @@
 import { initialPlaybackState, mediaKind, validPlaybackCommand, type PlaybackState, type PlaybackCommand } from "./playback";
+import { browserLibrary, type Binding } from "./data/browser-store";
+import { DataError } from "./data/model";
 
-export function createBrowserPlayer(element: HTMLVideoElement, publish: (state: PlaybackState) => void) {
+export async function createBrowserPlayer(element: HTMLVideoElement, publish: (state: PlaybackState) => void) {
+  const library = await browserLibrary();
   const state = initialPlaybackState();
+  const { settings, generation } = await library.playbackDefaults();
+  Object.assign(state, settings);
   const sources = new Map<string, string>();
+  const bindings = new Map<string, Binding>();
   let lastSave = 0;
   let loadVersion = 0;
   let resumeTime: number | null = null;
   let disposed = false;
   const emit = () => { if (!disposed) publish({ ...state, items: [...state.items] }); };
-  const storageError = () => { state.error = { code: "storage" }; emit(); };
-  try {
-    const saved = JSON.parse(localStorage.getItem("shravanam.playback.settings") ?? "null");
-    if (saved && validPlaybackCommand({ type: "speed", value: saved.speed })) state.speed = saved.speed;
-    if (saved && validPlaybackCommand({ type: "intervals", backward: saved.backward, forward: saved.forward })) { state.backward = saved.backward; state.forward = saved.forward; }
-  } catch { state.error = { code: "storage" }; }
+  const storageError = (error: unknown) => {
+    console.error("Library write failed", error);
+    const changed = error instanceof DataError && error.code === "changed";
+    if (changed) element.pause();
+    state.error = { code: changed ? "library-changed" : "storage" };
+    emit();
+  };
 
-  function savePosition() {
-    if (!state.currentId || resumeTime !== null || state.loading || element.error || !element.readyState) return;
-    try { localStorage.setItem(`shravanam.position.${state.currentId}`, String(element.ended ? 0 : element.currentTime)); }
-    catch { storageError(); }
+  function persistPosition(): Promise<void> {
+    if (disposed || !state.currentId || resumeTime !== null || state.loading || element.error || !element.readyState) return Promise.resolve();
+    const binding = bindings.get(state.currentId);
+    if (!binding) return Promise.resolve();
     lastSave = Date.now();
+    return library.saveProgress(binding, element.currentTime, Number.isFinite(element.duration) ? element.duration : 0, element.ended);
   }
+  function savePosition() { void persistPosition().catch(storageError); }
   function synchronize() {
     state.time = Number.isFinite(element.currentTime) ? element.currentTime : 0;
     state.duration = Number.isFinite(element.duration) ? element.duration : 0;
@@ -55,23 +64,23 @@ export function createBrowserPlayer(element: HTMLVideoElement, publish: (state: 
     emit();
   }
   function paused() { synchronize(); savePosition(); }
-  function select(id: string) {
+  async function select(id: string) {
     const url = sources.get(id);
-    if (!url) return;
+    const binding = bindings.get(id);
+    if (!url || !binding || disposed) return;
     state.error = null;
-    savePosition();
-    loadVersion++;
+    const version = ++loadVersion;
+    await persistPosition();
+    if (version !== loadVersion || disposed) return;
+    state.loading = true;
     element.pause();
     state.currentId = id;
     state.time = 0;
     state.duration = 0;
-    state.loading = true;
     state.paused = true;
     resumeTime = 0;
-    try {
-      const saved = Number(localStorage.getItem(`shravanam.position.${id}`));
-      if (Number.isFinite(saved) && saved >= 0) resumeTime = saved;
-    } catch { state.error = { code: "storage" }; }
+    resumeTime = await library.position(binding);
+    if (version !== loadVersion || disposed) return;
     element.src = url;
     element.load();
     emit();
@@ -84,26 +93,30 @@ export function createBrowserPlayer(element: HTMLVideoElement, publish: (state: 
   emit();
 
   return {
-    addFiles(files: File[]) {
+    async addFiles(files: File[]) {
       let firstId: string | undefined;
       let invalidName: string | undefined;
       for (const file of files) {
         const kind = mediaKind(file.name);
         if (!kind) { invalidName ??= file.name; continue; }
-        const id = JSON.stringify([file.name, file.size, file.lastModified]);
+        const binding = await library.openMedia({ name: file.name, size: file.size, lastModified: file.lastModified }, kind, generation);
+        if (disposed) return;
+        if (binding.generation !== generation) throw new DataError("changed");
+        const id = binding.mediaId;
+        bindings.set(id, binding);
         if (!sources.has(id)) {
           sources.set(id, URL.createObjectURL(file));
           state.items.push({ id, name: file.name, kind });
         }
         firstId ??= id;
       }
-      if (firstId) select(firstId);
+      if (firstId) await select(firstId);
       if (invalidName) state.error = { code: "format", name: invalidName };
       emit();
     },
     async command(command: PlaybackCommand) {
       if (!validPlaybackCommand(command)) return;
-      if (command.type === "select") select(command.id);
+      if (command.type === "select") await select(command.id);
       if (command.type === "toggle" && state.currentId) {
         state.error = null;
         if (element.paused) await play(); else element.pause();
@@ -112,13 +125,14 @@ export function createBrowserPlayer(element: HTMLVideoElement, publish: (state: 
       if (command.type === "speed") { state.speed = command.value; element.defaultPlaybackRate = command.value; element.playbackRate = command.value; }
       if (command.type === "intervals") { state.backward = command.backward; state.forward = command.forward; }
       if (command.type === "speed" || command.type === "intervals") {
-        try { localStorage.setItem("shravanam.playback.settings", JSON.stringify({ speed: state.speed, backward: state.backward, forward: state.forward })); }
-        catch { storageError(); }
+        await library.saveSettings({ speed: state.speed, backward: state.backward, forward: state.forward }, generation);
       }
       emit();
     },
+    flush: persistPosition,
     dispose() {
-      savePosition();
+      if (disposed) return Promise.resolve();
+      const saved = persistPosition();
       disposed = true;
       loadVersion++;
       for (const [name, handler] of Object.entries(events)) element.removeEventListener(name, handler);
@@ -128,6 +142,7 @@ export function createBrowserPlayer(element: HTMLVideoElement, publish: (state: 
       element.removeAttribute("src");
       element.load();
       for (const url of sources.values()) URL.revokeObjectURL(url);
+      return saved;
     },
   };
 }

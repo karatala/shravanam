@@ -9,6 +9,22 @@ This document tracks implemented source and remaining work. ✅ marks completed 
 - ✅ First local-file implementation: shared controls, browser playback, desktop mpv IPC, external file drops, saved positions, and desktop association source. Native checks remain pending.
 - ✅ Add Android native local-audio source: Media3 service, Capacitor bridge, system file intake, saved positions, and media-session controls. Browser iteration accepted by the user; Android build/device checks remain pending.
 - [ ] Design a separate `karatala-ui` library from common needs in several projects. This is deferred and is not part of the player implementation.
+- ✅ Add GitHub Actions source based on Rachana for web checks/builds, Windows/Linux/macOS builds, and an Android debug APK, with downloadable artifacts.
+- [ ] Verify the first GitHub CI run. Release publication, Pages, and iOS CI remain separate setup work.
+- ✅ Record synchronization, export/import, and backup/restore requirements in `DATA_PLAN.md`. Browser persistence now uses IndexedDB; native storage and remote destinations remain open.
+- ✅ Add the shared record model, JSON archive v1, browser migration, export/import preview, conflict preservation, and local recovery. Runtime verification remains pending.
+
+## [ ] Data foundation: synchronization and recovery
+
+`DATA_PLAN.md` owns this design. Address identity and persistence before expanding the library, notes, captions, or history.
+
+- ✅ Define the first shared logical model and implement browser progress/settings migration while retaining old data.
+- [ ] Connect native data adapters and migrate their progress stores without losing data or background updates.
+- [ ] Cover viewed/listened history, progress, metadata, descriptions/comments, subtitles, transcripts, chapters, bookmarks, notes, playlists, and portable settings.
+- [ ] Implement portable export/import and manual verified backup/restore, with explicit media inclusion and safe duplicate/conflict handling.
+- [ ] Define offline changes, revisions, deletions, and conflict handling for multiple devices. Preserve concurrent text edits and intentional rewinds.
+- [ ] Evaluate self-hosting, WebDAV, object storage, and cloud-drive adapters; choose the first destination separately from the data format.
+- [ ] Define encryption, credential storage, automatic sync/backups, retention, and provider changes before enabling them.
 
 ## [ ] Stage 1: playback ownership and first playable version
 

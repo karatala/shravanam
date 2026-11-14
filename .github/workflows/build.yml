@@ -1,0 +1,127 @@
+name: Cross-platform build
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      - run: bun run build
+      - uses: actions/upload-artifact@v6
+        with:
+          name: shravanam-web
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            name: windows-x64
+            output: desktop-win32-x64
+            archive: zip
+          - os: ubuntu-24.04
+            name: linux-x64
+            output: desktop-linux-x64
+            archive: tar.gz
+          - os: macos-15
+            name: macos-arm64
+            output: desktop-darwin-arm64
+            archive: zip
+          - os: macos-15-intel
+            name: macos-x64
+            output: desktop-darwin-x64
+            archive: zip
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Linux WebView dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libxdo-dev
+      - run: bun install --frozen-lockfile
+      - run: bun run build:desktop
+      - name: Archive Linux application
+        if: runner.os == 'Linux'
+        shell: bash
+        run: tar -czf "release/shravanam-${{ matrix.name }}.tar.gz" -C "release/${{ matrix.output }}" .
+      - name: Archive Windows application
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path "release/${{ matrix.output }}/*" -DestinationPath "release/shravanam-${{ matrix.name }}.zip"
+      - name: Archive macOS application
+        if: runner.os == 'macOS'
+        shell: bash
+        run: ditto -c -k --keepParent "release/${{ matrix.output }}/Shravanam.app" "release/shravanam-${{ matrix.name }}.zip"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: shravanam-${{ matrix.name }}
+          path: release/shravanam-${{ matrix.name }}.${{ matrix.archive }}
+          if-no-files-found: error
+          retention-days: 14
+
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - run: bun install --frozen-lockfile
+      - run: bun run prepare:android
+      - name: Build Android debug APK
+        working-directory: android
+        run: bash ./gradlew --no-daemon assembleDebug
+      - uses: actions/upload-artifact@v6
+        with:
+          name: shravanam-android-debug
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14

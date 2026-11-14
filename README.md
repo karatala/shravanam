@@ -2,7 +2,7 @@
 
 Lightweight audiobook application base, adapted from the sibling Rachana project in `../Komprohit`.
 
-The current source contains a Svelte interface, Bun build and local server, a production PWA shell cache, and local-file playback. The browser uses its media player; the Bun desktop host controls mpv outside the system WebView. Android has a Media3 playback service connected to Capacitor. iOS native playback, downloads, a persistent library, and desktop background controls remain future work. Native platform behavior still needs verification.
+The current source contains a Svelte interface, Bun build and local server, a production PWA shell cache, and local-file playback. The browser uses its media player and an IndexedDB library with data export/import; the Bun desktop host controls mpv outside the system WebView. Android has a Media3 playback service connected to Capacitor. iOS native playback, downloads, full library management, native library adapters, and desktop background controls remain future work. Browser data recovery and native platform behavior still need verification.
 
 ## Requirements
 
@@ -39,7 +39,7 @@ Use **Open files**, or drag files from Finder/Explorer into the window. A batch 
 
 Accepted extensions: `mp3`, `m4a`, `m4b`, `aac`, `flac`, `ogg`, `opus`, `wav`, `mp4`, `m4v`, `webm`, `mkv`, `mov`. Browser codecs vary; start with an MP3. Files are not uploaded. The list is session-only and does not automatically advance at the end.
 
-Positions save every five seconds and on pause, seeking, file changes, and graceful exit. Reopen the same unchanged file to resume; completed files start at zero. In the browser, reselect the file after reloading. Browser identity uses name, size, and modification time; matching files share a position. Desktop identity uses canonical path, size, and modification time. Moving or changing a desktop file creates a new identity. Abrupt termination can lose the last few seconds.
+Positions save every five seconds and on pause, seeking, file changes, and graceful exit. Reopen the same unchanged file to resume; completed files start at zero. In the browser, reselect the file after reloading. Browser library IDs are stable; local file matching uses name, size, and modification time, not a content hash. Desktop identity uses canonical path, size, and modification time. Moving or changing a desktop file creates a new identity. Abrupt termination can lose the last few seconds; browser page-exit writes are also subject to its lifecycle limits.
 
 Desktop progress and settings live in `Shravanam/playback.json`, outside the WebView. The first mpv launch creates `Shravanam/mpv/mpv.conf` and `input.conf` if absent. Edit them while the app is closed. Defaults are `cache=yes`, `cache-on-disk=no`, `demuxer-max-bytes=128MiB`, and `demuxer-max-back-bytes=32MiB`. These settings control media buffering, not OS swap or progress writes. mpv video appears in its own native window; its `input.conf` shortcuts are not global. Closing Shravanam currently stops playback.
 
@@ -83,6 +83,24 @@ Shared tasks: `Dev`, `Check`, `Build`, `Preview`, `Run Desktop`, `Build Desktop`
 
 Browser debugging covers the web interface. Native audio, tray controls, global shortcuts, and Android background behavior need their own native checks.
 
+## GitHub CI
+
+`.github/workflows/build.yml` follows Rachana's build pattern for the current delivery targets. It runs on pull requests, tag pushes, and manual dispatch. Ordinary branch pushes do not trigger it. Once the workflow is on the default branch, use **Actions → Cross-platform build → Run workflow** for a manual run.
+
+The web job runs `bun run check` and builds the PWA. Native jobs build Windows x64, Linux x64, macOS arm64/x64, and an Android debug APK. Android preparation includes the native player overlay before Gradle builds it. Download successful outputs from the run's **Artifacts** section; retention is 14 days. Desktop packages still need an installed mpv, and Android debug artifacts use the runner's generated debug key, not a stable distribution key.
+
+CI uses read-only repository access and no custom secrets. The configuration is added locally; a successful GitHub run is still pending. It does not publish a GitHub Release, deploy a PWA, or build iOS. Rachana's release destination and Pages settings are not inherited.
+
+## Data portability and synchronization
+
+Synchronization, export/import, and backups are required for history, progress, source texts, subtitles, transcripts, notes, and the rest of the library. [DATA_PLAN.md](DATA_PLAN.md) records scope, conflict handling, restore behavior, and open decisions. It proposes local-first data with separate destination adapters; self-hosting, WebDAV, object storage, and cloud drives remain candidates. Media inclusion and encryption are explicit design choices.
+
+The first implementation is available in the browser under **Data and backups**. It stores library records in IndexedDB, migrates valid old browser progress/settings while retaining the originals, and exports an unencrypted JSON archive without media files. Import validates version, checksum, record links, and size before showing a preview. Conflicting variants are both retained; current versions stay active by default. A changed import saves the previous library atomically. **Previous local copy** restores that snapshot and retains the replaced data in the recovery slot. Export the JSON file to keep a copy outside browser storage.
+
+Import/restore stops the initiating player; reselect the file afterward. Stale players in other tabs cannot overwrite restored data and ask for a reload. Matching one imported media record by filename, size, and modification time can restore its progress; changed/renamed files need future explicit relinking. Invalid legacy entries are reported and remain in the old storage, but are excluded from the new archive. The archive supports 16 MiB and 20,000 record variants. See [archive v1](src/data/FORMAT.md) for the record model and merge rules.
+
+The model includes notes, subtitles/transcripts, chapters, history, and playlists for import/export; their authoring and extraction interfaces remain future work. Native desktop/Android stores are still separate and are not included in browser backups. Native adapters, cross-platform relinking, automatic backups, encryption, and remote synchronization are the next data stages. Browser migration and recovery still need runtime verification.
+
 ## Next work
 
 The original feature text is in [TODOS.md](TODOS.md). [FEATURE_PLAN.md](FEATURE_PLAN.md) contains the structured backlog, sleep-timer sequence, proposed stages, and open decisions.
@@ -91,6 +109,7 @@ The original feature text is in [TODOS.md](TODOS.md). [FEATURE_PLAN.md](FEATURE_
 - [ ] Build and check Android native playback, system opening, notification controls, screen lock, and headset actions on a device. See `FEATURE_PLAN.md` for the check list.
 - [ ] Replace the temporary Rachana icons with Shravanam assets and configure native launch icons.
 - [ ] Verify dependency installation, source checks, PWA offline use, and each requested native target.
+- [ ] Verify the first GitHub CI run and browser data recovery, then connect desktop/Android storage to the shared data format before adding remote synchronization.
 
 ## Source and license
 
