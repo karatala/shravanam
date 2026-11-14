@@ -15,7 +15,7 @@ This document tracks implemented source and remaining work. ✅ marks completed 
 - ✅ Add the shared record model, JSON archive v1, browser migration, export/import preview, conflict preservation, and local recovery. Runtime verification remains pending.
 - ✅ Add a separate 20-file recent list and paused restoration of the last file in browser, desktop, and Android source. Browser restoration uses supported file handles and existing permission; otherwise it asks for access or reselection. Runtime verification remains pending.
 - ✅ Make default browser development a control surface for Bun-owned files and the shared mpv player. Add authenticated loopback commands, system file selection based on Rachana, independent development profile, and explicit `dev:web` mode for PWA checks.
-- ✅ Add desktop YouTube link input, installed yt-dlp metadata resolution, audio-only/Watch streams, stable source progress, and a separate 20-link recent list. Source code is present; online playback verification remains pending.
+- ✅ Add desktop YouTube link input, installed yt-dlp metadata resolution, audio-only/Watch streams, stable source progress, and a separate 20-link recent list. A source-level IINA Listen check confirmed stream loading and advancing playback; the remaining online checks below are pending.
 - [ ] Verify Bun control mode: native picker cancel/open, page reload and closed-tab playback, multiple control tabs, recent-file restoration after terminal restart, missing mpv, unavailable dialog, stale token after restart, and rejection of foreign Origin/Host/token requests.
 
 ## [ ] Data foundation: synchronization and recovery
@@ -88,6 +88,7 @@ mpv is the first desktop playback engine, running as a separate process controll
 - ✅ Default standalone mpv buffering to `cache=yes`, `cache-on-disk=no`, 128 MiB forward and 32 MiB backward, configurable in `mpv.conf`. IINA uses the mode-specific properties above. This controls media buffering, not OS swap or settings writes. Desktop YouTube input uses metadata resolution and enforces RAM-only media buffering; no offline media download is implemented.
 - [ ] Bundle mpv and its dependent libraries with the required licenses for each supported desktop architecture.
 - ✅ Resolve recorded YouTube links in the Bun host with installed yt-dlp, then pass validated HTTPS streams to mpv/IINA. Do not depend on the player’s bundled extraction hook.
+- ✅ Wait for IINA's silent launch file before opening media and match load completion to the requested path. Prefer IINA's bundled yt-dlp on macOS. A source-level check confirmed that a recorded YouTube audio stream loaded with the correct duration and playback advanced.
 - [ ] Verify YouTube extraction with the installed downloader/runtime, separate audio/video synchronization, seeking, mode changes, expired-address retry, and shutdown cancellation on target systems.
 - [ ] Check distribution size, licenses, supported desktop architectures, video-window behavior, IPC access, and state recovery before adopting it.
 

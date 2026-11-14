@@ -62,6 +62,7 @@ export class MpvPlayer {
     }
     const socketPath = process.platform === "win32" ? `\\\\.\\pipe\\shravanam-${process.pid}-${randomBytes(12).toString("hex")}` : join(await mkdtemp(join(tmpdir(), "shravanam-mpv-")), "ipc");
     let args = [`--config-dir=${configDirectory}`, `--input-ipc-server=${socketPath}`, "--idle=yes", "--keep-open=yes", "--terminal=no", "--input-terminal=no", "--force-window=no", "--resume-playback=no", "--save-position-on-quit=no", "--pause=yes", "--vid=no"];
+    let bootstrap;
     if (this.backend === "iina") {
       // IINA applies command-line mpv properties only when it opens an input.
       // Bootstrap with silence, never the user's file, until IPC is connected.
@@ -70,7 +71,7 @@ export class MpvPlayer {
       silence.writeUInt32LE(16, 16); silence.writeUInt16LE(1, 20); silence.writeUInt16LE(1, 22);
       silence.writeUInt32LE(8000, 24); silence.writeUInt32LE(16000, 28); silence.writeUInt16LE(2, 32); silence.writeUInt16LE(16, 34);
       silence.write("data", 36); silence.writeUInt32LE(silence.length - 44, 40);
-      const bootstrap = join(this.profile, "iina-bootstrap.wav");
+      bootstrap = join(this.profile, "iina-bootstrap.wav");
       await writeFile(bootstrap, silence, { mode: 0o600 });
       // Spawn the application binary directly, as iina-cli does, to own its PID.
       // Single-dash arguments override preferences for this process only.
@@ -118,6 +119,18 @@ export class MpvPlayer {
       });
       socket.on("error", error => { if (this.socket === socket) this.disconnected(error); });
       socket.on("close", () => { if (this.socket === socket) this.disconnected(new Error("mpv connection closed")); });
+      if (bootstrap) {
+        // IPC can be ready before IINA opens its launch file. Wait before replacing it.
+        const loaded = new Promise((resolve, reject) => { this.waitForLoad = { path: bootstrap, resolve, reject }; });
+        void loaded.catch(() => {});
+        const timer = setTimeout(() => this.waitForLoad?.reject(new Error("IINA startup media loading timed out")), 15000);
+        try {
+          const path = await this.request(["get_property", "path"]).catch(() => null);
+          const duration = await this.request(["get_property", "duration"]).catch(() => null);
+          if (path === bootstrap && Number.isFinite(duration) && duration > 0) this.waitForLoad.resolve();
+          await loaded;
+        } finally { clearTimeout(timer); this.waitForLoad = null; }
+      }
       for (const [idx, name] of ["time-pos", "duration", "pause", "speed", "eof-reached"].entries()) await this.request(["observe_property", idx + 1, name]);
       await this.setAudioOnly(this.audioOnly);
     } catch (error) {
@@ -153,7 +166,10 @@ export class MpvPlayer {
       this.onChange();
     }
     if (message.event === "file-loaded") {
-      this.waitForLoad?.resolve();
+      const waiting = this.waitForLoad;
+      if (waiting) void this.request(["get_property", "path"]).then(path => {
+        if (this.waitForLoad === waiting && path === waiting.path) waiting.resolve();
+      }).catch(error => waiting.reject(error));
     }
     if (message.event === "end-file" && this.loaded && ["stop", "quit"].includes(message.reason)) {
       this.loaded = false;
@@ -212,7 +228,7 @@ export class MpvPlayer {
     this.loaded = false;
     await this.start();
     this.state = { time: 0, duration: 0, paused: true, loading: true, speed };
-    const loaded = new Promise((resolve, reject) => { this.waitForLoad = { resolve, reject }; });
+    const loaded = new Promise((resolve, reject) => { this.waitForLoad = { path, resolve, reject }; });
     // Observe rejection immediately, including a process exit before loadfile replies.
     void loaded.catch(() => {});
     const timer = setTimeout(() => this.waitForLoad?.reject(new Error("Media loading timed out")), 15000);

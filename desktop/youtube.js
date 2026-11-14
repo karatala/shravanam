@@ -34,8 +34,10 @@ export function youtubeSource(input) {
 
 async function findDownloader() {
   const binary = process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp";
-  const candidates = [join(dirname(process.execPath), binary), Bun.which(binary)];
-  if (process.platform === "darwin") candidates.push("/opt/homebrew/bin/yt-dlp", "/usr/local/bin/yt-dlp", "/opt/local/bin/yt-dlp", "/Applications/IINA.app/Contents/MacOS/youtube-dl", join(homedir(), "Applications/IINA.app/Contents/MacOS/youtube-dl"));
+  const candidates = [];
+  if (process.platform === "darwin") candidates.push("/Applications/IINA.app/Contents/MacOS/youtube-dl", join(homedir(), "Applications/IINA.app/Contents/MacOS/youtube-dl"));
+  candidates.push(join(dirname(process.execPath), binary), Bun.which(binary));
+  if (process.platform === "darwin") candidates.push("/opt/homebrew/bin/yt-dlp", "/usr/local/bin/yt-dlp", "/opt/local/bin/yt-dlp");
   for (const candidate of candidates.filter(Boolean)) {
     try { await access(candidate, constants.X_OK); return candidate; }
     catch { /* Try the next installed downloader. */ }
