@@ -15,6 +15,7 @@ This document tracks implemented source and remaining work. ✅ marks completed 
 - ✅ Add the shared record model, JSON archive v1, browser migration, export/import preview, conflict preservation, and local recovery. Runtime verification remains pending.
 - ✅ Add a separate 20-file recent list and paused restoration of the last file in browser, desktop, and Android source. Browser restoration uses supported file handles and existing permission; otherwise it asks for access or reselection. Runtime verification remains pending.
 - ✅ Make default browser development a control surface for Bun-owned files and the shared mpv player. Add authenticated loopback commands, system file selection based on Rachana, independent development profile, and explicit `dev:web` mode for PWA checks.
+- ✅ Add desktop YouTube link input, installed yt-dlp metadata resolution, audio-only/Watch streams, stable source progress, and a separate 20-link recent list. Source code is present; online playback verification remains pending.
 - [ ] Verify Bun control mode: native picker cancel/open, page reload and closed-tab playback, multiple control tabs, recent-file restoration after terminal restart, missing mpv, unavailable dialog, stale token after restart, and rejection of foreign Origin/Host/token requests.
 
 ## [ ] Data foundation: synchronization and recovery
@@ -46,7 +47,7 @@ The first desktop implementation uses a separate mpv process controlled by Bun t
 - ✅ Store desktop progress and settings in `Shravanam/playback.json`, outside the WebView. Development control mode uses `Shravanam-dev/playback.json`; standalone PWA progress uses IndexedDB.
 - [ ] Define storage for downloaded media. The shell cache is not book storage.
 - ✅ Define shared select, play/pause, seek, speed, and interval commands and playback state in `src/playback.ts`. Android maps the same commands to its service. Desktop system controls, sleep timer, and tray integration remain later work.
-- ✅ Start with local files: MP3, M4A/M4B, AAC, FLAC, OGG/Opus, WAV, MP4/M4V, WebM, MKV, MOV. Browser codec support varies. Direct URLs and site links remain separate future inputs.
+- ✅ Start with local files: MP3, M4A/M4B, AAC, FLAC, OGG/Opus, WAV, MP4/M4V, WebM, MKV, MOV. Browser codec support varies. Pasted individual YouTube links now have a separate desktop resolver. Generic URLs, other sites, and Android/PWA links remain pending.
 
 ### [ ] File drag-and-drop and associations
 
@@ -77,14 +78,17 @@ Verification: check a selected-site link before enable, after enable, after rest
 
 mpv is the first desktop playback engine, running as a separate process controlled through private JSON IPC. The source finds an installed or adjacent binary; packaging does not yet bundle it. WebView disposal while retaining playback remains a later stage.
 
-- ✅ Add an installed-IINA fallback on macOS when standalone mpv is absent. Start a separate process with private IPC, silent initialization, and process-local preference overrides. Keep progress in Shravanam and close only its own process.
+- ✅ Add an installed-IINA fallback on macOS when standalone mpv is absent or fails during startup. Start a separate process with private IPC, silent initialization, and process-local preference overrides. Keep progress in Shravanam and close only its own process.
 - ✅ Add desktop Listen/Watch selection, saved with playback settings. Listen disables video. IINA uses RAM cache limits of 32/8 MiB forward/backward for Listen and 128/32 MiB for Watch, with safe hardware decoding requested for video.
-- [ ] Verify IINA 1.3.5 startup, play/pause, speed, seeking, Listen/Watch, file changes, end-of-file replay, paused startup restoration, and shutdown while another IINA process is open. Measure CPU and memory before deciding whether to add a separate audio engine. Tauri migration is not selected.
+- ✅ User confirmed basic playback after updating IINA; the installed version was not recorded.
+- ✅ Preserve the latest active-file position across player stop/disconnect and exclude bootstrap properties from saved progress. Show a specific message with Play to reopen the file. Recovery verification remains pending.
+- [ ] Verify fallback from an incompatible mpv build, IINA startup, play/pause, speed, seeking, Listen/Watch, file changes, end-of-file replay, paused startup restoration, close/Play recovery before the five-second save interval and after a host restart, and shutdown while another IINA process is open. Measure CPU and memory before deciding whether to add a separate audio engine. Tauri migration is not selected.
 
 - ✅ Add application-owned `--config-dir`, `mpv.conf`, and editable `input.conf`, created only when absent. Bindings cover the mpv video window; global shortcuts remain future work.
-- ✅ Default standalone mpv buffering to `cache=yes`, `cache-on-disk=no`, 128 MiB forward and 32 MiB backward, configurable in `mpv.conf`. IINA uses the mode-specific properties above. This controls media buffering, not OS swap or settings writes. Online source input is not implemented yet.
+- ✅ Default standalone mpv buffering to `cache=yes`, `cache-on-disk=no`, 128 MiB forward and 32 MiB backward, configurable in `mpv.conf`. IINA uses the mode-specific properties above. This controls media buffering, not OS swap or settings writes. Desktop YouTube input uses metadata resolution and enforces RAM-only media buffering; no offline media download is implemented.
 - [ ] Bundle mpv and its dependent libraries with the required licenses for each supported desktop architecture.
-- [ ] Evaluate site-link resolution through mpv's yt-dlp integration separately from direct-stream playback.
+- ✅ Resolve recorded YouTube links in the Bun host with installed yt-dlp, then pass validated HTTPS streams to mpv/IINA. Do not depend on the player’s bundled extraction hook.
+- [ ] Verify YouTube extraction with the installed downloader/runtime, separate audio/video synchronization, seeking, mode changes, expired-address retry, and shutdown cancellation on target systems.
 - [ ] Check distribution size, licenses, supported desktop architectures, video-window behavior, IPC access, and state recovery before adopting it.
 
 Reference: [mpv manual](https://mpv.io/manual/stable/).
@@ -139,11 +143,12 @@ Stage verification: compare playback with the interface open and disposed; confi
 - [ ] Offline download with a choice of audio-only or video where the source supports it.
 - [ ] Automatic downloading. Define triggers, queue limits, network conditions, storage limits, and retry behavior before enabling it.
 - [ ] Represent waiting, downloading, interrupted, ready, and failed downloads clearly. An incomplete file must not appear as an offline-ready item.
-- [ ] Open a link shared from YouTube. Separate receipt of the link from successful media extraction and playback.
+- ✅ Add manual paste/open of individual recorded YouTube links on desktop, including video links with playlist parameters and explicit timestamps. Keep 20 canonical source links separate from local recents; store no signed stream URLs.
+- [ ] Add OS Share/Open with input for YouTube links and Android/PWA adapters. Separate receipt of the link from successful media extraction and playback.
 - [ ] Keep source identity with local media so position, notes, and chapters can refer to the same item after download.
 - [ ] Search the saved archive and watched/listened history.
 - [ ] Keep searchable personal notes on videos, channels, and playlists, including items without a local download.
-- [ ] Compare source acquisition options: a maintained external downloader and file import, browser integration or extension, and an embedded browser. No option is selected yet.
+- [ ] Compare source acquisition options: a maintained external downloader and file import, browser integration or extension, and an embedded browser. Installed yt-dlp is selected for the first desktop YouTube playback path; broader acquisition and download behavior remain open.
 - [ ] Investigate reuse of an existing downloader before implementing a browser. Define manual file import versus watched-folder import separately.
 - [ ] Evaluate yt-dlp for both media sources and related data: manual and automatic subtitles, descriptions, chapters, and comments where available. Use metadata extraction or `--skip-download` when media bytes are not needed; assess desktop and Android integration separately.
 - [ ] Maintain an explicit list of supported sites and source capabilities. The wish to load media from any site remains a research goal, not a promise.

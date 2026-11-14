@@ -3,10 +3,14 @@ import { createHash } from "node:crypto";
 import { basename, isAbsolute, join } from "node:path";
 import { initialPlaybackState, mediaKind, validPlaybackCommand } from "../src/playback.ts";
 import { MpvPlayer } from "./mpv.js";
+import { youtubeSource, resolveYouTube } from "./youtube.js";
 
 export async function createMediaPlayer(profile) {
   const state = initialPlaybackState();
   const paths = new Map();
+  const links = new Map();
+  const resolverAbort = new AbortController();
+  let resolving = false;
   const settingsPath = join(profile, "playback.json");
   let currentId = null;
   let serial = Promise.resolve();
@@ -24,15 +28,25 @@ export async function createMediaPlayer(profile) {
     if (typeof settings.audioOnly === "boolean") audioOnly = settings.audioOnly;
     if (settings.positions && typeof settings.positions === "object" && !Array.isArray(settings.positions)) positions = Object.fromEntries(Object.entries(settings.positions).filter(([id, time]) => /^[a-f0-9]{64}$/.test(id) && Number.isFinite(time) && time >= 0));
     if (Array.isArray(settings.recent)) recent = settings.recent.filter(entry => entry && /^[a-f0-9]{64}$/.test(entry.id) && typeof entry.path === "string" && isAbsolute(entry.path) && !entry.path.includes("\0") && typeof entry.name === "string" && mediaKind(entry.name) === entry.kind).slice(0, 20);
+    for (const saved of Array.isArray(settings.links) ? settings.links.slice(0, 20) : []) {
+      try {
+        const source = youtubeSource(saved.url);
+        links.set(source.id, { ...source, name: typeof saved.name === "string" ? saved.name.slice(0, 300) : source.videoId, kind: "video" });
+      } catch { /* Ignore invalid saved links without removing local files. */ }
+    }
   } catch (error) { if (error.code !== "ENOENT") { console.error(error); state.error = { code: "storage" }; } }
-  const player = new MpvPlayer(profile, code => { if (code) state.error = { code, name: state.items.find(item => item.id === currentId)?.name }; });
+  const player = new MpvPlayer(profile, code => {
+    rememberPosition();
+    if (code) state.error = { code, name: state.items.find(item => item.id === currentId)?.name };
+    if (code === "player-closed") void queue(saveSettings);
+  });
   player.state.speed = state.speed;
   player.audioOnly = audioOnly;
-  const snapshot = () => ({ ...state, ...(currentId ? player.state : {}), currentId, audioOnly: player.audioOnly, backend: player.backend, items: [...state.items], recent: recent.map(({ id, name, kind }) => ({ id, name, kind })) });
+  const snapshot = () => ({ ...state, ...(currentId ? player.state : {}), loading: resolving || player.state.loading, currentId, audioOnly: player.audioOnly, backend: player.backend, items: [...state.items], recent: recent.map(({ id, name, kind }) => ({ id, name, kind })), recentLinks: [...links.values()].reverse().map(({ id, name, kind }) => ({ id, name, kind })) });
   function queue(action) {
     const next = serial.then(async () => { if (!closing) await action(); }).catch(error => {
       console.error("Desktop media action failed", error);
-      state.error = { code: ["missing-player", "iina-player", "open", "changed-file"].includes(error.code) ? error.code : "player", name: error.mediaName ?? state.items.find(item => item.id === currentId)?.name };
+      state.error = { code: ["missing-player", "iina-player", "open", "changed-file", "youtube-link", "missing-downloader", "youtube", "youtube-live"].includes(error.code) ? error.code : "player", name: error.mediaName ?? state.items.find(item => item.id === currentId)?.name };
     });
     serial = next;
     return next.then(snapshot);
@@ -59,6 +73,7 @@ export async function createMediaPlayer(profile) {
     recent = ordered;
   }
   async function select(id, autoplay = true) {
+    if (links.has(id)) return selectLink(links.get(id), autoplay);
     const path = paths.get(id);
     if (!path) return;
     let entry;
@@ -72,17 +87,45 @@ export async function createMediaPlayer(profile) {
     remember([entry]);
     await saveSettings();
   }
+  async function selectLink(source, autoplay = true, position, audioOnly = player.audioOnly) {
+    resolving = true;
+    state.error = null;
+    try {
+      const stream = await resolveYouTube(source, audioOnly, resolverAbort.signal);
+      if (closing) return;
+      await saveSettings();
+      const start = position ?? positions[source.id] ?? 0;
+      if (player.loaded) { await player.request(["set_property", "pause", true]); player.state.paused = true; }
+      await player.setAudioOnly(audioOnly);
+      const entry = { id: source.id, videoId: source.videoId, url: source.url, name: stream.title, kind: "video" };
+      links.delete(source.id);
+      links.set(source.id, entry);
+      if (links.size > 20) {
+        const oldestId = links.keys().next().value;
+        links.delete(oldestId);
+        state.items = state.items.filter(item => item.id !== oldestId);
+      }
+      state.items = [...state.items.filter(item => item.id !== source.id), { id: source.id, name: stream.title, kind: "video" }];
+      await saveSettings();
+      currentId = source.id;
+      await player.load(stream.url, state.speed, start, autoplay, stream);
+      await saveSettings();
+    } finally { resolving = false; }
+  }
   async function openRecent(id, autoplay) {
     const entry = recent.find(item => item.id === id);
     if (!entry) return;
     register(entry);
     await select(id, autoplay);
   }
-  async function saveSettings() {
+  function rememberPosition() {
     if (currentId && player.loaded && !player.state.loading) positions[currentId] = player.state.duration > 0 && player.state.time >= player.state.duration ? 0 : player.state.time;
+  }
+  async function saveSettings() {
+    rememberPosition();
     const temporary = `${settingsPath}.pending`;
     try {
-      await writeFile(temporary, JSON.stringify({ speed: state.speed, backward: state.backward, forward: state.forward, audioOnly: player.audioOnly, positions, recent }), { mode: 0o600 });
+      await writeFile(temporary, JSON.stringify({ speed: state.speed, backward: state.backward, forward: state.forward, audioOnly: player.audioOnly, positions, recent, links: [...links.values()] }), { mode: 0o600 });
       await rename(temporary, settingsPath);
     } catch (error) { console.error(error); state.error = { code: "storage" }; }
   }
@@ -122,8 +165,12 @@ export async function createMediaPlayer(profile) {
     },
     command(command) {
       if (!validPlaybackCommand(command)) return Promise.resolve(snapshot());
-      if (command.type === "select" || command.type === "recent") openedExplicitly = true;
+      if (["select", "recent", "open-youtube"].includes(command.type)) openedExplicitly = true;
       return queue(async () => {
+        if (command.type === "open-youtube") {
+          const source = youtubeSource(command.url);
+          await selectLink(source, true, source.start);
+        }
         if (command.type === "recent") await openRecent(command.id, true);
         if (command.type === "select") await select(command.id);
         if (command.type === "toggle" && currentId) {
@@ -150,16 +197,21 @@ export async function createMediaPlayer(profile) {
           await saveSettings();
         }
         if (command.type === "intervals") { state.backward = command.backward; state.forward = command.forward; await saveSettings(); }
-        if (command.type === "audio-only") { await player.setAudioOnly(command.value); await saveSettings(); }
+        if (command.type === "audio-only") {
+          if (links.has(currentId) && command.value !== player.audioOnly) await selectLink(links.get(currentId), !player.state.paused, undefined, command.value);
+          else await player.setAudioOnly(command.value);
+          await saveSettings();
+        }
       });
     },
     async close() {
       closing = true;
+      resolverAbort.abort();
       clearInterval(interval);
       await serial;
       await saveSettings();
       await player.close();
     },
-    terminate() { player.process?.kill(); },
+    terminate() { resolverAbort.abort(); player.process?.kill(); },
   };
 }

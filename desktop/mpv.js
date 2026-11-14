@@ -26,18 +26,18 @@ export class MpvPlayer {
   async start() {
     if (this.socket && !this.socket.destroyed) return;
     if (this.starting) return this.starting;
-    this.starting = this.startProcess();
+    this.starting = this.startProcess(this.backend === "iina");
     try { await this.starting; }
     finally { this.starting = null; }
   }
 
-  async startProcess() {
+  async startProcess(iinaOnly = false) {
     if (this.closed) throw new Error("Player is closed");
     const binaryName = process.platform === "win32" ? "mpv.exe" : "mpv";
     const candidates = [join(dirname(process.execPath), "mpv", binaryName), join(dirname(process.execPath), "..", "Resources", "mpv", "bin", binaryName), Bun.which(binaryName)];
     if (process.platform === "darwin") candidates.push("/opt/homebrew/bin/mpv", "/usr/local/bin/mpv", "/Applications/mpv.app/Contents/MacOS/mpv", join(homedir(), "Applications/mpv.app/Contents/MacOS/mpv"));
     let executable;
-    for (const candidate of candidates.filter(Boolean)) {
+    for (const candidate of iinaOnly ? [] : candidates.filter(Boolean)) {
       try { await access(candidate, constants.X_OK); executable = candidate; break; }
       catch { /* Try the next supported installation location. */ }
     }
@@ -84,7 +84,8 @@ export class MpvPlayer {
     const child = spawn(executable, args, { stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
     this.process = child;
     let startupError;
-    child.stderr.on("data", chunk => console.error(`[mpv] ${chunk.toString().trim()}`));
+    const backend = this.backend;
+    child.stderr.on("data", chunk => console.error(`[${backend}] ${chunk.toString().trim().replace(/https?:\/\/[^\s"'<>]+/g, "[stream URL]")}`));
     child.on("error", error => { startupError = error; if (this.process === child) this.disconnected(error); });
     child.on("exit", () => { if (this.process === child) this.disconnected(new Error("mpv exited")); });
     try {
@@ -120,9 +121,15 @@ export class MpvPlayer {
       for (const [idx, name] of ["time-pos", "duration", "pause", "speed", "eof-reached"].entries()) await this.request(["observe_property", idx + 1, name]);
       await this.setAudioOnly(this.audioOnly);
     } catch (error) {
-      child.kill();
-      this.socket?.destroy();
-      if (this.backend === "iina") error.code = "iina-player";
+      // Clear the failed process and socket before starting another backend.
+      // Late exit/close events from this attempt must not stop its replacement.
+      this.disconnected(error);
+      if (backend === "mpv" && process.platform === "darwin" && !this.closed) {
+        console.warn("mpv could not start. Trying installed IINA.");
+        try { return await this.startProcess(true); }
+        catch (fallbackError) { if (fallbackError.code !== "missing-player") throw fallbackError; }
+      }
+      if (backend === "iina") error.code = "iina-player";
       throw error;
     }
   }
@@ -136,6 +143,8 @@ export class MpvPlayer {
       else pending.reject(new Error(message.error));
     }
     if (message.event === "property-change") {
+      // Ignore bootstrap and shutdown properties outside an active media load.
+      if (!this.loaded && !this.waitForLoad) return;
       if (message.name === "time-pos" && Number.isFinite(message.data)) this.state.time = Math.max(0, message.data);
       if (message.name === "duration" && Number.isFinite(message.data)) this.state.duration = Math.max(0, message.data);
       if (message.name === "pause" && typeof message.data === "boolean") this.state.paused = message.data;
@@ -144,10 +153,12 @@ export class MpvPlayer {
       this.onChange();
     }
     if (message.event === "file-loaded") {
-      this.loaded = true;
-      this.state.loading = false;
       this.waitForLoad?.resolve();
-      this.onChange();
+    }
+    if (message.event === "end-file" && this.loaded && ["stop", "quit"].includes(message.reason)) {
+      this.loaded = false;
+      this.state.paused = true;
+      this.onChange("player-closed");
     }
     if (message.event === "end-file" && message.reason === "error") {
       this.loaded = false;
@@ -170,14 +181,14 @@ export class MpvPlayer {
     this.loaded = false;
     this.state.paused = true;
     this.state.loading = false;
-    if (!this.closed) this.onChange("player");
+    if (!this.closed && !this.starting) this.onChange("player-closed");
   }
 
-  request(command) {
+  request(command, timeout = 5000) {
     if (!this.socket || this.socket.destroyed) return Promise.reject(new Error("mpv is not connected"));
     const requestId = ++this.sequence;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.pending.delete(requestId); reject(new Error("mpv command timed out")); }, 5000);
+      const timer = setTimeout(() => { this.pending.delete(requestId); reject(new Error("mpv command timed out")); }, timeout);
       this.pending.set(requestId, { resolve, reject, timer });
       this.socket.write(JSON.stringify({ command, request_id: requestId }) + "\n");
     });
@@ -197,10 +208,10 @@ export class MpvPlayer {
     this.audioOnly = audioOnly;
   }
 
-  async load(path, speed, position = 0, autoplay = true) {
+  async load(path, speed, position = 0, autoplay = true, stream = null) {
+    this.loaded = false;
     await this.start();
     this.state = { time: 0, duration: 0, paused: true, loading: true, speed };
-    this.loaded = false;
     const loaded = new Promise((resolve, reject) => { this.waitForLoad = { resolve, reject }; });
     // Observe rejection immediately, including a process exit before loadfile replies.
     void loaded.catch(() => {});
@@ -208,16 +219,28 @@ export class MpvPlayer {
     try {
       if (this.backend === "iina") await this.request(["set_property", "mute", true]);
       await this.request(["set_property", "pause", true]);
+      await this.request(["set_property", "http-header-fields", stream?.headers ?? []]);
+      await this.request(["set_property", "ytdl", false]);
+      if (stream) {
+        await this.request(["set_property", "cache", "yes"]);
+        await this.request(["set_property", "cache-on-disk", false]);
+        await this.request(["set_property", "hwdec", "auto-safe"]);
+      }
       await this.request(["loadfile", path, "replace"]);
       await loaded;
+      if (stream?.audio) {
+        await this.request(["set_property", "http-header-fields", stream.audio.headers]);
+        await this.request(["audio-add", stream.audio.url, "select"], 30000);
+      }
       const duration = await this.request(["get_property", "duration"]).catch(() => 0);
       if (Number.isFinite(duration)) this.state.duration = duration;
-      if (position > 0 && position < this.state.duration) { await this.request(["seek", position, "absolute+exact"]); this.state.time = position; }
+      if (position > 0 && (!this.state.duration || position < this.state.duration)) { await this.request(["seek", position, "absolute+exact"]); this.state.time = position; }
       await this.request(["set_property", "speed", speed]);
       await this.request(["set_property", "pause", !autoplay]);
       if (this.backend === "iina") await this.request(["set_property", "mute", false]);
       this.state.speed = speed;
       this.state.paused = !autoplay;
+      this.loaded = true;
     } finally {
       clearTimeout(timer);
       this.waitForLoad = null;

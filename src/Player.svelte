@@ -20,21 +20,28 @@
   const nativePlayer = nativeDesktop || android;
   let state = $state<PlaybackState>(initialPlaybackState());
   let interfaceError = $state<PlaybackError | null>(null);
-  let mediaElement: HTMLVideoElement;
+  let mediaElement = $state<HTMLVideoElement>();
   let fileInput: HTMLInputElement;
   let browserPlayer: Awaited<ReturnType<typeof createBrowserPlayer>> | undefined;
   let mounted = false;
   let browserVersion = 0;
   let dragging = $state(false);
   let ready = $state(false);
+  let link = $state("");
+  let openingLink = $state(false);
   const current = $derived(state.items.find(item => item.id === state.currentId));
   const errorText = $derived.by(() => {
     const failure = interfaceError ?? state.error;
     if (!failure) return "";
     const name = failure.name ? ` «${failure.name}»` : "";
+    if (failure.code === "youtube-link") return text(`Cannot open link${name}. Paste an HTTPS link to one YouTube video, for example https://www.youtube.com/watch?v=dQw4w9WgXcQ. Playlist-only links and other sites are not supported yet.`, `Не удалось открыть ссылку${name}. Вставьте HTTPS-ссылку на один ролик YouTube, например https://www.youtube.com/watch?v=dQw4w9WgXcQ. Ссылки только на плейлист и другие сайты пока не поддерживаются.`);
+    if (failure.code === "missing-downloader") return text("Cannot open YouTube: yt-dlp was not found. Add a current yt-dlp executable to PATH, or update IINA in Applications, then open the link again.", "Не удалось открыть YouTube: yt-dlp не найден. Добавьте актуальный исполняемый файл yt-dlp в PATH или обновите IINA в папке «Программы», затем откройте ссылку снова.");
+    if (failure.code === "youtube") return text(`Cannot open YouTube${name}. Check the connection and that the video plays without signing in. Update yt-dlp (or IINA if using its copy) and ensure a supported JavaScript runtime, for example Deno, is installed, then open the link again.`, `Не удалось открыть YouTube${name}. Проверьте соединение и доступность ролика без входа в аккаунт. Обновите yt-dlp (или IINA, если используется его копия) и проверьте наличие поддерживаемой среды JavaScript, например Deno, затем откройте ссылку снова.`);
+    if (failure.code === "youtube-live") return text("Cannot open this live or upcoming stream yet. Open a recorded YouTube video instead.", "Прямой эфир или запланированная трансляция пока не поддерживается. Откройте записанный ролик YouTube.");
     if (failure.code === "format") return text(`Cannot open${name}. Choose a supported audio or video file, for example book.mp3 or chapter.m4b.`, `Не удалось открыть${name}. Выберите аудио или видео поддерживаемого формата, например book.mp3 или chapter.m4b.`);
     if (failure.code === "missing-player") return text("Cannot start playback: no supported player was found. On macOS, place IINA.app or mpv.app in Applications. On Windows or Linux, install mpv and add it to PATH. Then open the file again.", "Не удалось начать воспроизведение: подходящий плеер не найден. На macOS поместите IINA.app или mpv.app в папку «Программы». На Windows или Linux установите mpv и добавьте его в PATH. Затем откройте файл снова.");
     if (failure.code === "iina-player") return text("Cannot connect to the IINA player started by Shravanam. Restart Shravanam and open the file again. If this continues, open IINA from Applications to check that macOS allows it to run.", "Не удалось подключиться к IINA, запущенному из Shravanam. Перезапустите Shravanam и откройте файл снова. Если ошибка осталась, откройте IINA из папки «Программы» и проверьте, что macOS разрешает его запуск.");
+    if (failure.code === "player-closed") return text("Playback stopped or the player closed. Press Play to reopen the file at the last saved position.", "Воспроизведение остановлено или плеер закрыт. Нажмите «Воспроизвести», чтобы открыть файл с последней сохранённой позиции.");
     if (failure.code === "host") return text("Cannot connect to the local player. Start or restart bun run dev in the terminal, then reload this page.", "Нет связи с локальным плеером. Запустите или перезапустите bun run dev в терминале и обновите страницу.");
     if (failure.code === "picker") return text("Cannot open the system file dialog. Close any existing dialog and try again. On Linux, install zenity or kdialog if neither is available.", "Не удалось открыть системный диалог выбора файла. Закройте уже открытый диалог и повторите попытку. На Linux установите zenity или kdialog, если их нет.");
     if (failure.code === "native-drop") return text("Use Open files to select this file on the computer. A browser drop does not provide its disk path to the local player. File drops are supported in the desktop app window.", "Выберите этот файл через «Открыть файлы». При перетаскивании браузер не передаёт локальному плееру путь на диске. Перетаскивание доступно в окне desktop-приложения.");
@@ -45,6 +52,7 @@
     if (failure.code === "library-changed") return text("Library data changed in another window. Reload this page, then reopen the media file.", "Данные библиотеки изменены в другом окне. Перезагрузите страницу и откройте медиафайл снова.");
     if (failure.code === "storage") return text("Cannot save playback progress or settings. Check free space and storage access, then try again.", "Не удалось сохранить позицию или настройки. Проверьте свободное место и доступ к хранилищу, затем повторите попытку.");
     if (failure.code === "open") return text(`Cannot read${name}. Check that the file exists and is accessible, then open it again.`, `Не удалось прочитать${name}. Проверьте, что файл существует и доступен, затем откройте его снова.`);
+    if (state.recentLinks?.some(item => item.id === state.currentId)) return text("Cannot play the YouTube stream. Check the connection and press Play to get a fresh stream address and resume.", "Не удалось воспроизвести поток YouTube. Проверьте соединение и нажмите «Воспроизвести», чтобы получить новый адрес потока и продолжить.");
     return text(`Cannot play${name}. Press Play to retry. If playback still fails, check the file and try another format, for example MP3.`, `Не удалось воспроизвести${name}. Нажмите «Воспроизвести» для повторной попытки. Если ошибка осталась, проверьте файл или попробуйте другой формат, например MP3.`);
   });
 
@@ -53,6 +61,7 @@
     state = { ...state, loading: false, error: { code: error instanceof DataError && error.code === "changed" ? "library-changed" : "storage" } };
   }
   async function startBrowser(restore = false) {
+    if (!mediaElement) return;
     const version = ++browserVersion;
     ready = false;
     const player = await createBrowserPlayer(mediaElement, next => { if (mounted && version === browserVersion) state = next; });
@@ -95,6 +104,13 @@
     }
     try { state = await (android ? androidPlayer.chooseMedia() : desktopPlayer()!.chooseMedia()); }
     catch (error) { console.error(error); interfaceError = { code: error instanceof BunPlayerError ? error.code : "open" }; }
+  }
+  async function openLink(event: SubmitEvent) {
+    event.preventDefault();
+    if (openingLink) return;
+    openingLink = true;
+    try { await command({ type: "open-youtube", url: link.trim() }); }
+    finally { openingLink = false; }
   }
   onMount(() => {
     mounted = true;
@@ -167,6 +183,13 @@
     {:else if !android}<span>{dragging ? text("Drop files here", "Отпустите файлы здесь") : text("Or drop files from your file manager", "Или перетащите файлы из файлового менеджера")}</span>{/if}
   </div>
   <input bind:this={fileInput} type="file" accept={mediaAccept} multiple hidden onchange={() => { addFiles(Array.from(fileInput.files ?? [], file => ({ file }))); fileInput.value = ""; }} />
+  {#if nativeDesktop}
+    <form class="open-row playback-mode" onsubmit={openLink}>
+      <label class="link-field">YouTube<input type="url" bind:value={link} required maxlength="2048" placeholder="https://www.youtube.com/watch?v=…" /></label>
+      <button type="submit" class="action" disabled={!ready || state.loading || openingLink} onpointerup={releasePointerFocus}>{text("Open link", "Открыть ссылку")}</button>
+    </form>
+    {#if state.loading || openingLink}<p class="hint" role="status">{text("Opening media…", "Открытие медиа…")}</p>{/if}
+  {/if}
   {#if nativeDesktop && typeof state.audioOnly === "boolean"}
     <div class="controls playback-mode">
       <label>{text("Mode", "Режим")}<select disabled={!ready || state.loading} value={state.audioOnly ? "audio" : "video"} onchange={event => command({ type: "audio-only", value: event.currentTarget.value === "audio" })}><option value="audio">{text("Listen", "Слушать")}</option><option value="video">{text("Watch", "Смотреть")}</option></select></label>
@@ -180,7 +203,7 @@
     {#if android && current.kind === "video"}<p class="hint">{text("Playing the audio track. Video display is not available on Android yet.", "Воспроизводится звуковая дорожка. Показ видео на Android пока не добавлен.")}</p>{/if}
     {#if nativeDesktop && current.kind === "video"}<p class="hint">{state.audioOnly ? text("Playing only audio. Select Watch to enable video in the player window.", "Воспроизводится только звук. Выберите «Смотреть», чтобы включить видео в окне плеера.") : text("Video plays in a separate player window.", "Видео воспроизводится в отдельном окне плеера.")}</p>{/if}
     {#if current.temporary}<p class="hint">{text("This file has temporary access. For later playback, select it with Open files to request lasting access.", "Доступ к файлу временный. Для последующего воспроизведения выберите его через «Открыть файлы», чтобы запросить постоянный доступ.")}</p>{/if}
-    {#if state.loading}<p role="status">{text("Opening media…", "Открытие файла…")}</p>{/if}
+    {#if state.loading && !nativeDesktop}<p role="status">{text("Opening media…", "Открытие файла…")}</p>{/if}
     <label class="timeline">
       <span>{formatTime(state.time)} / {formatTime(state.duration)}</span>
       <input aria-label={text("Playback position", "Позиция воспроизведения")} type="range" min="0" max={state.duration || 1} step="0.1" value={state.time} disabled={!state.duration || state.loading} onchange={event => command({ type: "seek", time: Number(event.currentTarget.value) })} />
@@ -209,6 +232,12 @@
       <ul>{#each state.recent as item (item.id)}<li><button type="button" class="file" disabled={!ready} onclick={() => command({ type: "recent", id: item.id })} onpointerup={releasePointerFocus}>{item.name}{item.temporary ? text(" · access may need renewal", " · может потребоваться доступ заново") : ""}</button></li>{/each}</ul>
     </details>
   {/if}
+  {#if nativeDesktop && state.recentLinks?.length}
+    <details>
+      <summary>{text("Recent YouTube links", "Последние ссылки YouTube")}</summary>
+      <ul>{#each state.recentLinks as item (item.id)}<li><button type="button" class="file" disabled={!ready || state.loading} onclick={() => command({ type: "select", id: item.id })} onpointerup={releasePointerFocus}>{item.name}</button></li>{/each}</ul>
+    </details>
+  {/if}
   {#if !nativeDesktop && !Capacitor.isNativePlatform()}
     <LibraryTools enabled={ready} beforeExport={async () => { await browserPlayer?.flush(); }} beforeChange={stopBrowser} afterChange={startBrowser} />
   {/if}
@@ -231,7 +260,9 @@
   .timeline { display: grid; gap: 8px; margin: 16px 0; }
   .timeline input { width: 100%; accent-color: #fec965; }
   label { display: flex; align-items: center; gap: 8px; }
-  select, input[type="number"] { padding: 6px; background: #292929; color: #eee; border: none; border-radius: 4px; }
+  select, input[type="number"], input[type="url"] { padding: 6px; background: #292929; color: #eee; border: none; border-radius: 4px; }
+  .link-field { flex: 1; min-width: 180px; }
+  input[type="url"] { flex: 1; min-width: 0; }
   input[type="number"] { width: 80px; }
   details { margin-top: 20px; }
   summary { cursor: pointer; }

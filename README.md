@@ -8,7 +8,7 @@ The current source contains a Svelte interface, Bun build and local server, a pr
 
 - Bun, with the same runtime used for Rachana.
 - Native desktop prerequisites from `@webviewjs/webview` on the target system.
-- mpv installed on PATH for desktop playback and default `bun run dev`. On macOS, standard Homebrew paths and mpv.app in system/user Applications are also checked. If mpv is absent, Shravanam uses IINA.app from system/user Applications. Desktop packaging does not yet bundle a player or its libraries.
+- mpv installed on PATH for desktop playback and default `bun run dev`. On macOS, standard Homebrew paths and mpv.app in system/user Applications are also checked. If mpv is absent or fails during startup, Shravanam tries IINA.app from system/user Applications and keeps using IINA for that host session. An incompatible mpv build can still produce a macOS crash report before fallback. Desktop packaging does not yet bundle a player or its libraries.
 - The development system file dialog uses macOS `osascript`, Windows PowerShell/Windows Forms, or Linux `zenity` with `kdialog` as a fallback. Native desktop keeps its WebviewJS file dialog.
 - Xcode Command Line Tools for the macOS document-opening launcher.
 - Android Studio and its SDK for Android; macOS and Xcode for iOS.
@@ -53,7 +53,19 @@ Desktop starts in **Listen** mode: video tracks are disabled, including for loca
 
 With IINA, Shravanam starts and owns a separate application process. It does not send commands to an existing IINA window. It starts with a generated silent WAV while connecting, then loads the selected file with sound muted until the saved position and pause state are applied. IINA preferences are overridden for this process through launch arguments, not edited on disk. IINA does not use Shravanam's standalone mpv configuration files. Its media cache stays in RAM: Listen uses 32 MiB forward and 8 MiB backward; Watch uses 128 MiB forward and 32 MiB backward. Video requests safe hardware decoding. These are cache limits, not total memory limits. IINA may show its own window while controlled by Shravanam.
 
-For the first IINA check, restart `bun run dev`, open a local MP3 or M4B, and check play/pause, speed, seeking, browser reload, and paused restoration after a terminal restart. Open a local video and switch Listen/Watch. Keep a separate IINA window open to check that closing Shravanam affects only its own player process. This integration still needs runtime verification with IINA 1.3.5. YouTube and other site-link input remain pending.
+For the first IINA check, restart `bun run dev`, open a local MP3 or M4B, and check play/pause, speed, seeking, browser reload, and paused restoration after a terminal restart. Open a local video and switch Listen/Watch. Keep a separate IINA window open to check that closing Shravanam affects only its own player process. The user confirmed basic playback after updating IINA. Stop/close recovery and the remaining checks above still need verification. After closing the player, Play reopens the file at its latest received position; bootstrap and stopped-player properties must not replace that position. Pasted YouTube links are supported as described below; other sites and OS link associations remain pending.
+
+## YouTube playback on desktop
+
+In default `bun run dev` or native desktop, paste an HTTPS link to one recorded YouTube video and press **Open link**. Watch URLs, youtu.be links, Shorts, and embed links are accepted. A video link with a playlist parameter opens only that video. Playlist-only links, active/upcoming live streams, sign-in, Android/PWA links, and other sites are not supported in this step.
+
+Shravanam uses installed yt-dlp: beside the host executable, on PATH, at standard macOS package-manager paths, or the copy named `youtube-dl` inside IINA.app. A current version with its YouTube JavaScript support is needed. Installed Node/Bun are enabled, and yt-dlp can also use its default Deno runtime. No downloader, runtime, plugin, or remote helper is installed automatically. If extraction fails, update the selected yt-dlp or IINA copy and check the runtime requirement.
+
+**Listen** requests only audio. **Watch** requests video and audio with a preference for 1080p/H.264 and safe hardware decoding. Mode changes resolve fresh streams and preserve position and pause state; a short pause can occur. yt-dlp returns metadata and stream addresses without downloading media files. Native playback uses RAM-only media buffering. This does not prevent OS swap or writes of saved positions.
+
+Progress uses the stable YouTube video ID. An explicit `t` or `start` timestamp takes priority when opening a pasted link; otherwise playback resumes from saved progress. The separate **Recent YouTube links** list keeps up to 20 links and titles. Signed stream addresses and request headers are not saved. Reopening resolves a fresh stream address. Links are reopened manually after a host restart; startup still restores the last local file. These device-local records are not yet part of shared-library export or synchronization.
+
+Manual verification remains pending: open a public recorded video, seek, change speed, switch Listen/Watch while playing and paused, close the player and press Play, reopen from recent links after host restart, and switch back to a local file. Also check invalid links, unavailable videos, missing/outdated yt-dlp, missing JavaScript support, network failure, and host shutdown during extraction.
 
 ## Desktop file associations
 

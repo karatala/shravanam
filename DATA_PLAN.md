@@ -2,7 +2,7 @@
 
 This plan separates implemented source from remaining design and verification. The first shared record model and JSON archive codec are implemented, with browser IndexedDB persistence, legacy browser migration, import/export, and local pre-import recovery. Native adapters and remote synchronization remain pending. Self-hosting, WebDAV, and cloud services are requested options; no remote provider or native database engine is selected. See `src/data/FORMAT.md` for archive v1. Browser behavior still needs runtime verification.
 
-Default `dev` now uses Bun's native playback store in `Shravanam-dev`, shared in implementation with desktop `Shravanam/playback.json`. The existing IndexedDB adapter and archive UI are available through `dev:web` and standalone PWA output. These stores are still separate; switching development modes does not migrate or erase them. Native adapters and native export/import remain the next data task.
+Default `dev` now uses Bun's native playback store in `Shravanam-dev`, shared in implementation with desktop `Shravanam/playback.json`. The existing IndexedDB adapter and archive UI are available through `dev:web` and standalone PWA output. These stores are still separate; switching development modes does not migrate or erase them. Native adapters and native export/import remain the next data task. Desktop YouTube playback stores canonical links, titles, and source-keyed positions in playback.json. Signed stream addresses/headers are transient. These native source keys are not shared-library IDs; migration and source-to-record mapping remain pending.
 
 ## Confirmed scope
 
