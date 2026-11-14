@@ -76,7 +76,7 @@ export class MpvPlayer {
       // Spawn the application binary directly, as iina-cli does, to own its PID.
       // Single-dash arguments override preferences for this process only.
       args = [
-        "-recordPlaybackHistory", "NO", "-recordRecentFiles", "NO", "-resumeLastPosition", "NO", "-enableThumbnailPreview", "NO", "-enableAdvancedSettings", "NO",
+        "-recordPlaybackHistory", "NO", "-recordRecentFiles", "NO", "-resumeLastPosition", "NO", "-pauseWhenOpen", "YES", "-enableThumbnailPreview", "NO", "-enableAdvancedSettings", "NO",
         "-playlistAutoPlayNext", "NO", "-pauseWhenInactive", "NO", "-pauseWhenMinimized", "NO", "-quitWhenNoOpenedWindow", "NO", "-NSQuitAlwaysKeepsWindows", "NO",
         `--mpv-input-ipc-server=${socketPath}`, "--mpv-idle=yes", "--mpv-keep-open=yes", "--mpv-pause=yes", "--mpv-mute=yes", "--mpv-vid=no",
         "--mpv-resume-playback=no", "--mpv-save-position-on-quit=no", bootstrap,
