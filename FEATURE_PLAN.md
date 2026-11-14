@@ -1,50 +1,92 @@
 # Shravanam feature plan
 
-This is a planning document, not a list of implemented features. `TODOS.md` retains the original Russian feature text. Values in the sleep-timer example are examples, not approved defaults. Resolve open choices before implementing their behavior. The proposed stage order can change.
+This document tracks implemented source and remaining work. ✅ marks completed source or a recorded decision; platform verification is listed separately and is not implied. `TODOS.md` retains the original Russian feature text. Values in the sleep-timer example are examples, not approved defaults. Resolve open choices before implementing their behavior. The proposed stage order can change.
 
 ## Current scope
 
 - ✅ First delivery targets: desktop and Android. Debug the shared interface in a desktop browser. Keep iOS and installed-PWA delivery for later stages.
 - ✅ Add shared VS Code tasks and a Rachana-style `node-terminal` launch using `bun run dev`. Open a browser manually and use its developer tools with development source maps. Runtime checks remain pending.
-- [ ] Implement the features below. The current application is still a platform shell.
+- ✅ First local-file implementation: shared controls, browser playback, desktop mpv IPC, external file drops, saved positions, and desktop association source. Native checks remain pending.
+- ✅ Add Android native local-audio source: Media3 service, Capacitor bridge, system file intake, saved positions, and media-session controls. Browser iteration accepted by the user; Android build/device checks remain pending.
 - [ ] Design a separate `karatala-ui` library from common needs in several projects. This is deferred and is not part of the player implementation.
 
 ## [ ] Stage 1: playback ownership and first playable version
 
 ### [ ] Decide playback ownership
 
-The requirement to unload the desktop WebView means that the WebView cannot own the active audio player. Proposed direction: Bun manages the desktop application; a native media engine owns playback. The interface reads state and sends commands. Closing the interface must not destroy playback, the sleep timer, or saved position. The concrete engine and process arrangement remain open.
+The first desktop implementation uses a separate mpv process controlled by Bun through private JSON IPC. The interface reads state and sends validated commands. Browser development uses a browser media element. The future requirement to unload the desktop WebView must keep native playback, the sleep timer, and saved position alive. Closing the current desktop app still exits playback; tray mode and interface recreation are not implemented.
 
 | Target | Proposed direction | Required check before claiming support |
 | --- | --- | --- |
 | Desktop | Bun host, native media engine, optional WebView interface | Audio continues after WebView disposal; tray and global shortcuts work; reopening restores the interface without restarting audio |
-| Android | Native player and media session outside the Capacitor WebView | Background audio, notification actions, lock-screen controls, headset events, and interruption handling on a device |
+| Android | Media3 ExoPlayer and MediaSessionService outside the Capacitor WebView; local plugin for the interface | Android build, background audio, notification actions, lock-screen controls, headset events, and interruption handling on a device |
 | iOS | Native media layer behind Capacitor | Background audio, system media controls, headset events, and interruption handling on a device |
 | PWA | Browser player and browser-supported media controls | Record actual background and control support per browser; do not promise native parity |
 
-- [ ] Select the desktop engine for the desktop/Android first stage. Compare required formats, video support, speed control, memory use, packaging size, and license requirements.
-- [ ] Define storage outside the WebView for native playback state and downloaded media. The shell cache is not book storage.
-- [ ] Define the minimum commands and state shared by interface, native controls, sleep timer, and tray. Keep one authoritative playback owner per session.
-- [ ] Define first supported inputs and formats: local files, direct media URLs, and site links are separate input types.
+- ✅ Use mpv for desktop local playback and Media3 1.11.1 for Android local audio. Keep format, resource, packaging, and license validation open before distribution.
+- ✅ Store desktop progress and settings in `Shravanam/playback.json`, outside the WebView. Browser progress uses localStorage.
+- [ ] Define storage for downloaded media. The shell cache is not book storage.
+- ✅ Define shared select, play/pause, seek, speed, and interval commands and playback state in `src/playback.ts`. Android maps the same commands to its service. Desktop system controls, sleep timer, and tray integration remain later work.
+- ✅ Start with local files: MP3, M4A/M4B, AAC, FLAC, OGG/Opus, WAV, MP4/M4V, WebM, MKV, MOV. Browser codec support varies. Direct URLs and site links remain separate future inputs.
 
-### [ ] Desktop mpv candidate
+### [ ] File drag-and-drop and associations
 
-mpv is a candidate, not a selected or bundled dependency. Proposed integration: a separate process controlled by Bun through JSON IPC, so playback survives WebView disposal.
+- ✅ Scope confirmed: external OS file drag-and-drop and OS associations that open media in Shravanam. Internal extension-to-player rules are not requested.
+- ✅ Add native OS file-drop handling and separate browser File handling. Both add files to the same interface. Native behavior still needs checks on each OS.
+- ✅ Add packaging source for macOS document declarations and optional Windows/Linux Open With registration. The user chooses defaults for double-click opening; no defaults are changed automatically.
+- ✅ Add cold-launch arguments, a macOS document-event launcher, authenticated forwarding to an existing instance, and startup buffering. OS drops, associations, and the file dialog share the media-opening flow.
+- ✅ Add Android document selection, Open With, and file Share intake through content URIs, with cold/warm intent handling and queued imports. Request persistent read access where granted and identify temporary access in the UI. Device checks remain pending.
+- [ ] Use Folder Sync only as a reference for relevant validation and argument handling. Its internal file rules and drag format do not implement incoming OS associations or native file drops.
+- ✅ Add accepted files in input order and start the first accepted item of each batch. Skip unsupported entries with a visible error. The list is session-only; automatic next-item playback is not included.
+- [ ] Verify native drops, cold/warm OS opening, default double-click opening, spaces in paths, multiple files, and requests during startup on target desktops.
 
-- [ ] Evaluate bundling mpv with an application-owned `--config-dir`, `mpv.conf`, and editable `input.conf`. Keep global shortcuts in the host; player-window bindings alone do not cover hidden-window use.
-- [ ] Default online playback to configurable RAM buffering: `cache=yes`, `cache-on-disk=no`. Expose memory limits through `demuxer-max-bytes` and `demuxer-max-back-bytes`; choose their defaults later. Keep offline downloads separate. This disables media disk caching, not OS swap or settings writes.
+Verification: drag a file from the OS file manager into the native window and the browser interface. Check Open with and default double-click opening with Shravanam closed and already running. Test paths with spaces and multiple files. Browser-only success does not establish native drop or association support.
+
+### [ ] Optional persistent link opening
+
+- [ ] Provide an optional, short setup flow to open selected websites, for example YouTube, in Shravanam persistently. Show actual enabled state and a matching disable/restore action. Keep ordinary file associations independent of website rules.
+- [ ] Support explicit Open link and OS Share/Open with input even when automatic website opening is disabled.
+- [ ] Select a supported per-platform routing method. Evaluate Android user-approved domain handling and desktop browser integration or a link-routing helper. A custom application URL scheme alone does not reroute ordinary HTTPS links.
+- [ ] Require the platform's user choice where needed and lead directly to the relevant settings. Do not claim automatic domain verification for YouTube or change the default handler for all web links merely to enable one site.
+- [ ] Record prior routing settings where they can be read, and track only changes made by Shravanam. On disable, remove its routing rules and restore the recorded choice where supported. Do not overwrite a newer choice made by the user in another application.
+- [ ] Where the OS prevents reading or restoring another handler directly, guide the user to the exact settings needed and verify the resulting state. Do not label restoration complete merely because an app-local switch was cleared.
+- [ ] Preserve the original URL and media time parameter. Avoid routing loops when opening a link back in the browser. Handle incoming links during startup and while the application is already running.
+
+Verification: check a selected-site link before enable, after enable, after restart, and after restore. Check that other sites retain their existing behavior. Include a changed or unavailable previous handler and user cancellation of system setup.
+
+### [ ] Desktop mpv integration and distribution
+
+mpv is the first desktop playback engine, running as a separate process controlled through private JSON IPC. The source finds an installed or adjacent binary; packaging does not yet bundle it. WebView disposal while retaining playback remains a later stage.
+
+- ✅ Add application-owned `--config-dir`, `mpv.conf`, and editable `input.conf`, created only when absent. Bindings cover the mpv video window; global shortcuts remain future work.
+- ✅ Default buffering to `cache=yes`, `cache-on-disk=no`, 128 MiB forward and 32 MiB backward, configurable in `mpv.conf`. This controls media buffering, not OS swap or settings writes. Online source input is not implemented yet.
+- [ ] Bundle mpv and its dependent libraries with the required licenses for each supported desktop architecture.
 - [ ] Evaluate site-link resolution through mpv's yt-dlp integration separately from direct-stream playback.
 - [ ] Check distribution size, licenses, supported desktop architectures, video-window behavior, IPC access, and state recovery before adopting it.
 
 Reference: [mpv manual](https://mpv.io/manual/stable/).
 
+### [ ] Android playback and device checks
+
+- ✅ Add a versioned Android library, plugin registration overlay, and repeatable integration in `prepare:android`.
+- ✅ Keep ExoPlayer, state, and five-second progress checkpoints in MediaSessionService. Reconnect the UI to an active service without reopening its media.
+- ✅ Play audio tracks only and disable video/text tracks. Persist settings and per-file positions in private SharedPreferences, keyed by URI and reported size. The file list remains service-session-only.
+- ✅ Add media notification preferences for play/pause and time jumps; map previous/next commands to time jumps. Enable audio-focus handling, headphone-disconnect pause, and playback wake lock.
+- [ ] Prepare and build the Android project, then install on a device. Check both a modern Android version and the oldest supported API level available for verification.
+- [ ] Open MP3/M4B and a video with an audio track. Check speed, configured intervals, end-of-file replay, saved position, and no video playback on Android in this stage.
+- [ ] Check single/multiple document selection, cancellation, Open With and Share during cold/warm launch, names with spaces/non-Latin characters, temporary grants, and revoked file access. Confirm that opening the UI again does not restart an already accepted intent.
+- [ ] Lock the screen, hide/recreate the interface, remove the active app task, and reopen through the notification. Check continuous audio, one playback instance, correct position, and no unintended autoplay when the service is no longer alive.
+- [ ] Check notification and lock-screen controls, headset play/pause and next/previous time jumps, headphone removal, and audio-focus interruptions. Record device-specific restrictions.
+- [ ] Add native video display and explicit audio/video switching in a later step.
+- [ ] Add media-button playback resumption after service termination when persistent library state exists.
+
 ### [ ] Core controls and library state
 
-- [ ] Play and pause; adjustable playback speed.
-- [ ] Configurable backward and forward time intervals in the main controls instead of previous/next-track actions.
+- ✅ Add local play/pause and playback speed from 0.25× to 3× in browser, desktop, and Android source.
+- ✅ Add configurable backward/forward intervals, initially 15/30 seconds, plus Space and Left/Right shortcuts in the app. Settings persist.
 - [ ] Seek with buttons and gestures. Define gesture direction, distance, and accidental-touch handling before implementation.
 - [ ] Chapters and navigation by chapter.
-- [ ] Remember position for each media item and restore it when that item is reopened.
+- ✅ Persist position per local file and restore it on reopening. Browser identity uses name, size, and modification time; desktop identity uses canonical path, size, and modification time. Completed items restart at zero. Runtime verification remains pending.
 - [ ] Queue and local playlists. Define the relationship between queue order and chapter navigation.
 - [ ] Audio-only and video playback modes.
 - [ ] Keep watched/listened history. Decide how completion and partial listening are recorded.
@@ -54,6 +96,7 @@ Stage verification: open a supported source, change speed, seek, reopen at the s
 
 ## [ ] Stage 2: background controls and resource use
 
+- ✅ Add the first Android background-service and media-session source. Device checks above remain open; desktop tray and resource-release work is separate.
 - [ ] Continue native playback with the screen locked and the interface in the background.
 - [ ] Expose play/pause and the configured time jumps through supported lock-screen and headset controls.
 - [ ] Add useful notification actions where the platform supports them; define the action set per platform.
@@ -148,6 +191,9 @@ Stage verification: cover day boundaries, time format, selected days, schedule c
 
 These references identify specific platform constraints; they do not select a complete implementation.
 
+- [Android user-approved domain handling](https://developer.android.com/training/app-links/verify-applinks): users can associate an app with declared domains through system settings even without domain verification. Selection and conflicts with other handlers need device verification.
+- [Windows website app handlers](https://learn.microsoft.com/en-us/windows/apps/develop/launch/web-to-app-linking): this mechanism requires package identity and a website-hosted association. It is not a general way to claim a third-party site such as YouTube; desktop routing needs a separate integration decision.
+
 - [Android background playback](https://developer.android.com/media/media3/session/background-playback): Android documents a player and media session in a separate service for background playback and external controls. This supports investigating a native playback owner outside the interface.
 - [yt-dlp options](https://github.com/yt-dlp/yt-dlp#usage-and-options): yt-dlp supports subtitle files, automatic captions, metadata, and comment retrieval. `--skip-download` permits related-file retrieval without downloading the video. Source availability still needs verification.
 - [YouTube captions download](https://developers.google.com/youtube/v3/docs/captions/download): the official API method requires permission to edit the video. This restriction belongs to that API method; it does not describe yt-dlp's subtitle retrieval path.
@@ -155,7 +201,7 @@ These references identify specific platform constraints; they do not select a co
 ## [ ] First decisions for the next iteration
 
 - ✅ Choose desktop and Android first, with desktop-browser debugging for the interface.
-- [ ] Choose the first source type. Proposed small starting point: local-file playback, position saving, and configurable time jumps.
-- [ ] Select and validate a playback engine that can survive closing its interface before implementing desktop WebView disposal.
+- ✅ Start with local-file playback, position saving, and configurable time jumps.
+- [ ] Validate desktop mpv and OS intake, and Android playback on a device; then implement desktop WebView disposal and tray controls.
 - [ ] Resolve the sleep-timer choices when that stage starts; retain the requested examples until then.
 - [ ] Decide the source acquisition approach before promising YouTube downloads or arbitrary-site support.

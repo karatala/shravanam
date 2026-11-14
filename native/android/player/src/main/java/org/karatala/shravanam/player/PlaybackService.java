@@ -1,0 +1,268 @@
+package org.karatala.shravanam.player;
+
+import android.app.PendingIntent;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
+import android.util.Log;
+import androidx.annotation.OptIn;
+import androidx.media3.common.AudioAttributes;
+import androidx.media3.common.C;
+import androidx.media3.common.ForwardingSimpleBasePlayer;
+import androidx.media3.common.MediaItem;
+import androidx.media3.common.MediaMetadata;
+import androidx.media3.common.PlaybackException;
+import androidx.media3.common.Player;
+import androidx.media3.common.util.UnstableApi;
+import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.session.CommandButton;
+import androidx.media3.session.MediaSession;
+import androidx.media3.session.MediaSessionService;
+import androidx.media3.session.SessionCommands;
+import com.getcapacitor.JSArray;
+import com.getcapacitor.JSObject;
+import com.google.common.collect.ImmutableList;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import org.json.JSONObject;
+
+@OptIn(markerClass = UnstableApi.class)
+public final class PlaybackService extends MediaSessionService {
+    // Accessed only on the main thread. The controller binding owns the UI connection.
+    static PlaybackService instance;
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final ExecutorService fileWorker = Executors.newSingleThreadExecutor();
+    private final LinkedHashMap<String, MediaFile> files = new LinkedHashMap<>();
+    private ExoPlayer player;
+    private SessionPlayer controls;
+    private MediaSession session;
+    private SharedPreferences settings;
+    private JSONObject types;
+    private MediaFile current;
+    private JSObject error;
+    private int backward;
+    private int forward;
+    private boolean destroyed;
+    private final Runnable checkpoint = new Runnable() {
+        @Override public void run() {
+            PlaybackService.this.saveProgress();
+            PlaybackService.this.handler.postDelayed(this, 5000);
+        }
+    };
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        this.settings = this.getSharedPreferences("shravanam.playback", MODE_PRIVATE);
+        this.backward = Math.max(1, Math.min(600, this.settings.getInt("backward", 15)));
+        this.forward = Math.max(1, Math.min(600, this.settings.getInt("forward", 30)));
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(this.getResources().openRawResource(R.raw.shravanam_media_types), StandardCharsets.UTF_8))) {
+            StringBuilder json = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) json.append(line);
+            this.types = new JSONObject(json.toString());
+        } catch (Exception failure) { throw new IllegalStateException("Missing packaged media types", failure); }
+        this.player = new ExoPlayer.Builder(this)
+            .setAudioAttributes(new AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_SPEECH).build(), true)
+            .setHandleAudioBecomingNoisy(true).setWakeMode(C.WAKE_MODE_LOCAL).build();
+        this.player.setTrackSelectionParameters(this.player.getTrackSelectionParameters().buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, true).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build());
+        float speed = this.settings.getFloat("speed", 1);
+        this.player.setPlaybackSpeed(Float.isFinite(speed) ? Math.max(0.25f, Math.min(3, speed)) : 1);
+        this.controls = new SessionPlayer();
+        MediaSession.Builder builder = new MediaSession.Builder(this, this.controls).setCallback(new MediaSession.Callback() {
+            @Override public MediaSession.ConnectionResult onConnect(MediaSession session, MediaSession.ControllerInfo controller) {
+                if (!controller.isTrusted()) return MediaSession.ConnectionResult.reject();
+                Player.Commands allowed = new Player.Commands.Builder().addAll(
+                    Player.COMMAND_PLAY_PAUSE, Player.COMMAND_PREPARE, Player.COMMAND_STOP,
+                    Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM, Player.COMMAND_SEEK_BACK, Player.COMMAND_SEEK_FORWARD,
+                    Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM, Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+                    Player.COMMAND_GET_CURRENT_MEDIA_ITEM, Player.COMMAND_GET_TIMELINE, Player.COMMAND_GET_METADATA, Player.COMMAND_GET_AUDIO_ATTRIBUTES, Player.COMMAND_GET_TRACKS).build();
+                return MediaSession.ConnectionResult.accept(SessionCommands.EMPTY, allowed);
+            }
+        });
+        Intent launch = this.getPackageManager().getLaunchIntentForPackage(this.getPackageName());
+        if (launch != null) builder.setSessionActivity(PendingIntent.getActivity(this, 0, launch, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
+        this.session = builder.build();
+        this.updateButtons();
+        this.player.addListener(new Player.Listener() {
+            @Override public void onPlayerError(PlaybackException failure) {
+                Log.e("Shravanam", "Android playback failed", failure);
+                PlaybackService.this.error = PlaybackService.failure(failure.errorCode == PlaybackException.ERROR_CODE_IO_NO_PERMISSION ? "access" : "play", PlaybackService.this.current == null ? null : PlaybackService.this.current.name);
+            }
+            @Override public void onEvents(Player player, Player.Events events) {
+                if (events.containsAny(Player.EVENT_POSITION_DISCONTINUITY, Player.EVENT_PLAY_WHEN_READY_CHANGED, Player.EVENT_PLAYBACK_STATE_CHANGED, Player.EVENT_PLAYBACK_PARAMETERS_CHANGED)) PlaybackService.this.saveProgress();
+            }
+        });
+        PlaybackService.instance = this;
+        this.handler.postDelayed(this.checkpoint, 5000);
+    }
+
+    @Override public MediaSession onGetSession(MediaSession.ControllerInfo controller) { return this.session; }
+
+    // SimpleBasePlayer keeps command and interval change events consistent with its getters.
+    private final class SessionPlayer extends ForwardingSimpleBasePlayer {
+        SessionPlayer() { super(PlaybackService.this.player); }
+
+        @Override protected State getState() {
+            State state = super.getState();
+            Commands.Builder commands = state.availableCommands.buildUpon();
+            if (state.availableCommands.contains(COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)) commands.addAll(COMMAND_SEEK_TO_PREVIOUS, COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM, COMMAND_SEEK_TO_NEXT, COMMAND_SEEK_TO_NEXT_MEDIA_ITEM);
+            return state.buildUpon().setAvailableCommands(commands.build()).setSeekBackIncrementMs(PlaybackService.this.backward * 1000L).setSeekForwardIncrementMs(PlaybackService.this.forward * 1000L).build();
+        }
+
+        @Override protected ListenableFuture<?> handleSeek(int mediaItemIndex, long positionMs, int seekCommand) {
+            if (seekCommand == COMMAND_SEEK_BACK || seekCommand == COMMAND_SEEK_TO_PREVIOUS || seekCommand == COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM) PlaybackService.this.seekBy(-PlaybackService.this.backward * 1000L);
+            else if (seekCommand == COMMAND_SEEK_FORWARD || seekCommand == COMMAND_SEEK_TO_NEXT || seekCommand == COMMAND_SEEK_TO_NEXT_MEDIA_ITEM) PlaybackService.this.seekBy(PlaybackService.this.forward * 1000L);
+            else return super.handleSeek(mediaItemIndex, positionMs, seekCommand);
+            return Futures.immediateVoidFuture();
+        }
+
+        @Override protected ListenableFuture<?> handleSetPlayWhenReady(boolean ready) {
+            if (PlaybackService.this.current == null) return Futures.immediateVoidFuture();
+            if (ready) {
+                PlaybackService.this.error = null;
+                if (PlaybackService.this.player.getPlaybackState() == STATE_ENDED) PlaybackService.this.player.seekTo(0);
+                if (PlaybackService.this.player.getPlaybackState() == STATE_IDLE) PlaybackService.this.player.prepare();
+            }
+            return super.handleSetPlayWhenReady(ready);
+        }
+
+        @Override protected ListenableFuture<?> handleStop() { PlaybackService.this.saveProgress(); return super.handleStop(); }
+        void refresh() { this.invalidateState(); }
+    }
+
+    private void updateButtons() {
+        this.controls.refresh();
+        this.session.setMediaButtonPreferences(ImmutableList.of(
+            new CommandButton.Builder(CommandButton.ICON_SKIP_BACK).setPlayerCommand(Player.COMMAND_SEEK_BACK).setDisplayName(this.getString(R.string.shravanam_seek_back, this.backward)).build(),
+            new CommandButton.Builder(CommandButton.ICON_SKIP_FORWARD).setPlayerCommand(Player.COMMAND_SEEK_FORWARD).setDisplayName(this.getString(R.string.shravanam_seek_forward, this.forward)).build()));
+    }
+
+    private void seekBy(long milliseconds) { this.seekTo(this.player.getCurrentPosition() + milliseconds); }
+
+    private void seekTo(long milliseconds) {
+        if (this.current == null) return;
+        long duration = this.player.getDuration();
+        this.player.seekTo(Math.max(0, duration > 0 ? Math.min(milliseconds, duration) : milliseconds));
+        this.saveProgress();
+    }
+
+    private static JSObject failure(String code, String name) {
+        JSObject result = new JSObject().put("code", code);
+        if (name != null) result.put("name", name);
+        return result;
+    }
+
+    void openUris(List<Uri> uris, Runnable finished) {
+        this.fileWorker.execute(() -> {
+            ArrayList<MediaFile> accepted = new ArrayList<>();
+            JSObject firstError = null;
+            for (Uri uri : uris) {
+                try { accepted.add(MediaFile.read(this.getContentResolver(), uri, this.types)); }
+                catch (Exception failure) {
+                    Log.e("Shravanam", "Cannot open Android media", failure);
+                    if (firstError == null) firstError = PlaybackService.failure(failure instanceof SecurityException ? "access" : failure instanceof MediaFile.UnsupportedFormat ? "format" : "open", failure instanceof MediaFile.UnsupportedFormat ? failure.getMessage() : null);
+                }
+            }
+            JSObject importError = firstError;
+            this.handler.post(() -> {
+                if (this.destroyed) return;
+                try {
+                    for (MediaFile file : accepted) this.files.put(file.id, file);
+                    if (!accepted.isEmpty()) this.select(accepted.get(0).id);
+                    if (importError != null) this.error = importError;
+                } catch (RuntimeException failure) {
+                    Log.e("Shravanam", "Cannot start selected media", failure);
+                    this.error = PlaybackService.failure("play", this.current == null ? null : this.current.name);
+                } finally { finished.run(); }
+            });
+        });
+    }
+
+    private void select(String id) {
+        MediaFile file = this.files.get(id);
+        if (file == null) return;
+        this.saveProgress();
+        this.error = null;
+        this.current = file;
+        long position = Math.max(0, this.settings.getLong("position." + id, 0));
+        MediaItem item = new MediaItem.Builder().setMediaId(id).setUri(file.uri).setMediaMetadata(new MediaMetadata.Builder().setTitle(file.name).build()).build();
+        this.player.setMediaItem(item, position);
+        this.player.prepare();
+        this.player.play();
+    }
+
+    void command(JSObject command) {
+        if (command == null) throw new IllegalArgumentException("Missing playback command");
+        String type = command.getString("type", "");
+        switch (type) {
+            case "select": this.select(command.getString("id", "")); break;
+            case "toggle":
+                if (this.player.getPlayWhenReady() && this.player.getPlaybackState() != Player.STATE_ENDED && this.player.getPlayerError() == null) this.controls.pause();
+                else this.controls.play();
+                break;
+            case "seek": this.seekTo((long) (PlaybackService.number(command, "time", 0, Long.MAX_VALUE / 1000.0) * 1000)); break;
+            case "speed": this.player.setPlaybackSpeed((float) PlaybackService.number(command, "value", 0.25, 3)); break;
+            case "intervals":
+                double back = PlaybackService.number(command, "backward", 1, 600);
+                double next = PlaybackService.number(command, "forward", 1, 600);
+                if (back != Math.rint(back) || next != Math.rint(next)) throw new IllegalArgumentException("Seek intervals must be whole seconds");
+                this.backward = (int) back;
+                this.forward = (int) next;
+                this.updateButtons();
+                break;
+            default: throw new IllegalArgumentException("Unknown playback command");
+        }
+        this.saveProgress();
+    }
+
+    private static double number(JSObject command, String key, double minimum, double maximum) {
+        Object value = command.opt(key);
+        if (!(value instanceof Number)) throw new IllegalArgumentException("Missing numeric playback value");
+        double number = ((Number) value).doubleValue();
+        if (!Double.isFinite(number) || number < minimum || number > maximum) throw new IllegalArgumentException("Playback value is out of range");
+        return number;
+    }
+
+    JSObject snapshot() {
+        JSArray items = new JSArray();
+        for (MediaFile file : this.files.values()) items.put(file.snapshot());
+        long duration = this.player.getDuration();
+        return new JSObject().put("items", items).put("currentId", this.current == null ? JSONObject.NULL : this.current.id)
+            .put("time", Math.max(0, this.player.getCurrentPosition()) / 1000.0).put("duration", duration > 0 ? duration / 1000.0 : 0)
+            .put("paused", !this.player.getPlayWhenReady() || this.player.getPlaybackState() == Player.STATE_ENDED || this.player.getPlayerError() != null)
+            .put("loading", this.player.getPlaybackState() == Player.STATE_BUFFERING).put("speed", this.player.getPlaybackParameters().speed)
+            .put("backward", this.backward).put("forward", this.forward).put("error", this.error == null ? JSONObject.NULL : this.error);
+    }
+
+    void saveProgress() {
+        SharedPreferences.Editor edit = this.settings.edit().putFloat("speed", this.player.getPlaybackParameters().speed).putInt("backward", this.backward).putInt("forward", this.forward);
+        if (this.current != null && this.player.getPlaybackState() != Player.STATE_IDLE && this.player.getPlayerError() == null) {
+            long position = this.player.getPlaybackState() == Player.STATE_ENDED ? 0 : Math.max(0, this.player.getCurrentPosition());
+            edit.putLong("position." + this.current.id, position);
+        }
+        edit.apply();
+    }
+
+    @Override
+    public void onDestroy() {
+        this.destroyed = true;
+        PlaybackService.instance = null;
+        this.saveProgress();
+        this.handler.removeCallbacksAndMessages(null);
+        this.fileWorker.shutdownNow();
+        this.controls.release();
+        this.session.release();
+        super.onDestroy();
+    }
+}

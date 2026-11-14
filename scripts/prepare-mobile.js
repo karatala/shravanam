@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { applyAndroidPlayer } from "./prepare-android.js";
 
 const platform = Bun.argv[2];
 if (platform !== "android" && platform !== "ios") throw new Error(`Cannot prepare mobile target '${platform ?? ""}'. Use android or ios, for example: bun run prepare:android.`);
@@ -10,4 +11,5 @@ async function run(args) {
 }
 if (!existsSync(platform)) await run([process.execPath, "x", "--no-install", "cap", "add", platform]);
 await run([process.execPath, "x", "--no-install", "cap", "sync", platform]);
+if (platform === "android") await applyAndroidPlayer();
 console.log(`Mobile project ready. Run bun run open:${platform} to open it in the native IDE.`);

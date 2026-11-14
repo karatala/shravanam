@@ -1,0 +1,4 @@
+<resources>
+    <string name="shravanam_seek_back">Назад на %1$d с</string>
+    <string name="shravanam_seek_forward">Вперёд на %1$d с</string>
+</resources>

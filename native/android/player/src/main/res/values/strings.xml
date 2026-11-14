@@ -1,0 +1,4 @@
+<resources>
+    <string name="shravanam_seek_back">Back %1$d seconds</string>
+    <string name="shravanam_seek_forward">Forward %1$d seconds</string>
+</resources>

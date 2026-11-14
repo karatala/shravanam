@@ -6,5 +6,8 @@ interface Window {
     minimizeWindow: () => Promise<null>;
     toggleMaximized: () => Promise<null>;
     requestWindowClose: () => Promise<null>;
+    chooseMedia: () => Promise<import("./playback").PlaybackState>;
+    getPlaybackState: () => Promise<import("./playback").PlaybackState>;
+    playbackCommand: (command: import("./playback").PlaybackCommand) => Promise<import("./playback").PlaybackState>;
   };
 }

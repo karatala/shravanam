@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { Capacitor } from "@capacitor/core";
   import { releasePointerFocus } from "./pointer-input";
+  import Player from "./Player.svelte";
 
   const russian = document.documentElement.lang === "ru";
   const text = (english: string, translation: string) => russian ? translation : english;
@@ -56,7 +57,7 @@
 </header>
 <main>
   <h1>{text("Your audiobooks", "Ваши аудиокниги")}</h1>
-  <p>{text("Your library will appear here.", "Здесь будет ваша библиотека.")}</p>
+  <Player />
   <div class="status" role="status">
     <span>{online ? text("Online", "Есть подключение к сети") : text("Offline", "Нет подключения к сети")}</span>
     <span>{offlineStatus}</span>
@@ -66,7 +67,6 @@
 <style>
   main { max-width: 760px; margin: 0 auto; padding: 64px max(24px, env(safe-area-inset-right)) max(32px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left)); }
   h1 { margin: 0 0 12px; font-size: clamp(24px, 5vw, 32px); font-weight: 600; }
-  p { color: #a5a5a5; line-height: 1.6; }
   .status { display: grid; gap: 8px; margin-top: 40px; font-size: 13px; color: #a5a5a5; }
   .status span:first-child { color: #fec965; }
 </style>

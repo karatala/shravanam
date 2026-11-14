@@ -97,11 +97,12 @@ Read `DOX.md` before editing. This file is the repository-wide contract.
 - Use Bun for builds and local serving. Do not add Vite. Keep Svelte 5, Bun with WebviewJS for desktop, and Capacitor for iOS and Android.
 - Keep UI controls local for now. Do not depend on `karatala-ui` or create its replacement here. A future separate `karatala-ui` library will draw from several projects; its design is not decided.
 - Use `org.karatala.shravanam` as the initial native application ID. Keep native profiles, ports, cache names, and future hosting separate from Rachana.
-- The current base includes the application shell only. `TODOS.md` preserves the user's feature text. `FEATURE_PLAN.md` owns the structured backlog, proposed stages, and unresolved behavior. A plan entry is not an implemented feature or an approved technical choice.
+- The current source includes the application shell and local-file playback: browser media playback, desktop mpv through private IPC, and an Android Media3 service behind a local Capacitor plugin. `TODOS.md` preserves the user's feature text. `FEATURE_PLAN.md` separates implemented source from pending native checks and future features.
 - Speak Russian with the user. Keep repository guidance in simple English.
 - Desktop and Android are the first delivery targets. Use the desktop browser for interface development and debugging. Keep native playback and background checks separate from browser checks.
 - `.vscode/tasks.json` and `.vscode/launch.json` are shared project configuration. Keep personal editor settings ignored.
 - Follow Rachana's `node-terminal` development launch with `bun run dev`. Let the user open their browser; do not add browser-specific launch configurations without a request.
+- Media intake must include external OS file drag-and-drop and OS Open with/default-file associations into Shravanam. Internal extension-to-player rules are not requested. Optional persistent website routing must have an explicit enable and disable/restore flow; respect system user choices and preserve unrelated or newer handler settings. `FEATURE_PLAN.md` owns the implementation details and checks.
 
 ## Startup and Offline Hosting
 
@@ -116,7 +117,8 @@ Read `DOX.md` before editing. This file is the repository-wide contract.
 ## Child DOX Index
 
 - `.vscode/AGENTS.md`: shared Bun tasks and the Rachana-style development-terminal launch.
-- `src/AGENTS.md`: shared Svelte shell and browser offline state.
-- `desktop/AGENTS.md`: Bun host, native window controls, and separate persistent profile.
+- `src/AGENTS.md`: shared Svelte interface, browser player, playback contract, and browser offline state.
+- `desktop/AGENTS.md`: Bun host, native window, mpv playback, file intake, and persistent profile.
+- `native/AGENTS.md`: desktop OS integration and the Android native playback source hierarchy.
 - `scripts/AGENTS.md`: Bun builds, local server, desktop packaging, and mobile preparation.
 - `public/AGENTS.md`: PWA manifest, worker template, and runtime assets.

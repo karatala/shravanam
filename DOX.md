@@ -90,4 +90,4 @@ When the user requests a durable behavior change, record it here or in the relev
 
 ## Child DOX Index
 
-`AGENTS.md` owns the current domain index for `.vscode`, `src`, `desktop`, `scripts`, and `public`.
+`AGENTS.md` owns the current domain index for `.vscode`, `src`, `desktop`, `native`, `scripts`, and `public`.
