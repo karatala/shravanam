@@ -18,6 +18,7 @@ export class MpvPlayer {
     this.starting = null;
     this.closed = false;
     this.loaded = false;
+    this.ended = false;
     this.waitForLoad = null;
     this.backend = null;
     this.audioOnly = true;
@@ -162,7 +163,9 @@ export class MpvPlayer {
       if (message.name === "duration" && Number.isFinite(message.data)) this.state.duration = Math.max(0, message.data);
       if (message.name === "pause" && typeof message.data === "boolean") this.state.paused = message.data;
       if (message.name === "speed" && Number.isFinite(message.data)) this.state.speed = message.data;
-      if (message.name === "eof-reached" && message.data === true) { this.state.time = this.state.duration; this.state.paused = true; }
+      if (message.name === "eof-reached" && typeof message.data === "boolean") this.ended = message.data;
+      // Late position and pause updates must not erase a completed file.
+      if (this.ended) { this.state.time = this.state.duration; this.state.paused = true; }
       this.onChange();
     }
     if (message.event === "file-loaded") {
@@ -226,6 +229,7 @@ export class MpvPlayer {
 
   async load(path, speed, position = 0, autoplay = true, stream = null) {
     this.loaded = false;
+    this.ended = false;
     await this.start();
     this.state = { time: 0, duration: 0, paused: true, loading: true, speed };
     const loaded = new Promise((resolve, reject) => { this.waitForLoad = { path, resolve, reject }; });

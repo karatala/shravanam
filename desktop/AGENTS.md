@@ -22,6 +22,7 @@
 - Canonicalize and validate native incoming files before registering them. Use the same intake for launch arguments, native file drops, and the file dialog. Add files in order and start the first accepted item.
 - Keep positions and settings in `Shravanam/playback.json`. Persist every five seconds, on controls and file changes, and before graceful exit. Key native positions by canonical path, size, and modification time.
 - Retain the latest active-file position in host memory on player updates and save it through the serialized queue when playback stops or the player disconnects. Ignore bootstrap and post-stop properties. Mark media loaded only after position, speed, and pause restoration finish. Play after a stop or disconnect reloads the file at that position, including when duration is not yet available; normal end-of-file replay still starts at zero.
+- Keep mpv's `eof-reached` state until it clears or another file loads. While ended, report pause and the full duration even after late position, pause, or duration updates, so completion saves zero and Play starts again at zero.
 - Save 20 recent files with canonical paths in the private profile. Expose names and IDs, never paths, through playback snapshots. Revalidate files before reopening. On startup, restore only the last file and leave mpv paused; incoming launch/drop/Open With requests take priority. Missing or changed files remain in recents with an actionable error.
 - Find mpv beside the executable, in macOS Resources, on PATH, at standard Homebrew paths, or inside mpv.app in system/user Applications. If mpv is absent or fails during startup on macOS, use IINA.app from system/user Applications. Clear the failed process, socket, and pending commands before fallback; late events must not stop the replacement. Keep IINA selected for later restarts in the same host session. Report a player error only after startup fallback fails. Do not download either player automatically. Bundling remains separate work.
 - Launch IINA's application executable directly in a separate process with a private IPC socket. Own and stop only that PID; never attach to or terminate the user's existing IINA processes. Open generated silence and wait for it to load before loading user media; an IPC connection alone does not mean IINA has finished opening its launch file. Match each file-loaded event to the requested path before completing a load. Mute during file loading and seeking to the saved position; apply the requested pause state before unmuting. Set the process-local `pauseWhenOpen` preference to `YES` so IINA cannot resume after the host restores pause. The host owns autoplay. Override IINA history, resume, advanced mpv settings, thumbnail, and automatic next-file preferences through launch arguments, without writing user preferences.
@@ -40,6 +41,7 @@
 
 ## Verification
 
+- `bun test tests/mpv.test.js` checks end-of-file state after late property updates.
 - Run desktop builds and native checks only when requested.
 
 ## Child DOX Index
