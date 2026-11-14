@@ -2,13 +2,14 @@
 
 Lightweight audiobook application base, adapted from the sibling Rachana project in `../Komprohit`.
 
-The current source contains a Svelte interface, Bun build and local server, a production PWA shell cache, and local-file playback. The browser uses its media player and an IndexedDB library with data export/import; the Bun desktop host controls mpv outside the system WebView. Android has a Media3 playback service connected to Capacitor. iOS native playback, downloads, full library management, native library adapters, and desktop background controls remain future work. Browser data recovery and native platform behavior still need verification.
+The current source contains a Svelte interface, Bun build and local server, a production PWA shell cache, and local-file playback. Default development uses the browser as controls for the Bun-owned mpv player; packaged desktop uses the same playback engine outside the system WebView. Standalone PWA mode uses a browser media player and an IndexedDB library with data export/import. Android has a Media3 playback service connected to Capacitor. iOS native playback, downloads, full library management, native library adapters, and desktop background controls remain future work. Browser data recovery and native platform behavior still need verification.
 
 ## Requirements
 
 - Bun, with the same runtime used for Rachana.
 - Native desktop prerequisites from `@webviewjs/webview` on the target system.
-- mpv installed on PATH for desktop playback. Standard Homebrew paths are also checked on macOS. Desktop packaging does not yet bundle mpv or its libraries.
+- mpv installed on PATH for desktop playback and default `bun run dev`. Standard Homebrew paths are also checked on macOS. Desktop packaging does not yet bundle mpv or its libraries.
+- The development system file dialog uses macOS `osascript`, Windows PowerShell/Windows Forms, or Linux `zenity` with `kdialog` as a fallback. Native desktop keeps its WebviewJS file dialog.
 - Xcode Command Line Tools for the macOS document-opening launcher.
 - Android Studio and its SDK for Android; macOS and Xcode for iOS.
 
@@ -21,7 +22,8 @@ Run these commands when you want to install, check, or build the base:
 | Command | Purpose |
 | --- | --- |
 | `bun install --frozen-lockfile` | Install the locked dependencies |
-| `bun run dev` | Build development files in `tmp/web` and serve on `http://127.0.0.1:3000`; reload the browser after edits |
+| `bun run dev` | Build UI in `tmp/web`; serve browser controls on `http://127.0.0.1:3000` with Bun-owned files and mpv playback |
+| `bun run dev:web` | Use the same development URL with standalone browser/PWA playback and browser data tools |
 | `bun run check` | Check Svelte and frontend TypeScript |
 | `bun run build` | Write the production web app and offline worker to `dist` |
 | `bun run preview` | Serve `dist` on `http://127.0.0.1:4173` for PWA checks |
@@ -33,9 +35,11 @@ Run these commands when you want to install, check, or build the base:
 
 The desktop host uses `127.0.0.1:47870` and its own `Shravanam/webview` directory below the OS application-data directory. Launching again forwards files to the running instance through a local authenticated endpoint. The page has a limited window/media bridge. WebView storage must not be treated as disposable while it holds application data.
 
+Default development uses `Shravanam-dev` below that OS application-data directory. Bun owns recent paths, progress, settings, and mpv; the browser receives state and sends commands through an authenticated loopback endpoint. The development profile is separate from packaged desktop and browser IndexedDB. Existing browser data is retained and remains available through `dev:web`; select a file once through the native dialog to start its native history. Reloading or closing the browser leaves audio running. Ctrl+C in the server terminal saves progress and stops mpv. Backend edits require a terminal restart; frontend edits still require only a page reload after the rebuild message.
+
 ## Local playback
 
-Use **Open files**, or drag files from Finder/Explorer into the window. A batch adds all supported files in order and starts its first item. Select another item from the list. Play/pause, speed from 0.25× to 3×, and configurable time jumps are available. Space toggles playback; Left/Right use the configured intervals, initially 15/30 seconds. Shortcuts leave text fields, selects, sliders, and dialogs alone.
+Use **Open files** for the system dialog in default development. Native desktop also accepts OS drops, and standalone PWA mode accepts browser File drops. A browser cannot pass a dropped file's absolute path to Bun; its control mode explains how to select the file with Open files instead. A batch adds all supported files in order and starts its first item. Select another item from the list. Play/pause, speed from 0.25× to 3×, and configurable time jumps are available. Space toggles playback; Left/Right use the configured intervals, initially 15/30 seconds. Shortcuts leave text fields, selects, sliders, and dialogs alone.
 
 Accepted extensions: `mp3`, `m4a`, `m4b`, `aac`, `flac`, `ogg`, `opus`, `wav`, `mp4`, `m4v`, `webm`, `mkv`, `mov`. Browser codecs vary; start with an MP3. Files are not uploaded. The list is session-only and does not automatically advance at the end.
 
@@ -81,9 +85,9 @@ After installing dependencies, select `Debug app` in Run and Debug, then press F
 
 Use either F5 or the `Dev` task to start the server, not both. Stop the server with Ctrl+C in its terminal. For a server started through `Dev`, you can also use `Tasks: Terminate Task`. Stop any other server on port 3000 before starting a new one. The Bun server does not accept Rachana's Vite `--host` argument.
 
-Shared tasks: `Dev`, `Check`, `Build`, `Preview`, `Run Desktop`, `Build Desktop`, `Prepare Android`, and `Open Android`. `Preview` and `Run Desktop` first run `Build`. `Prepare Android` builds web output and syncs the native project; use `Open Android` afterward. Personal VS Code settings remain ignored.
+Shared tasks: `Dev`, `Dev Web (PWA)`, `Check`, `Build`, `Preview`, `Run Desktop`, `Build Desktop`, `Prepare Android`, and `Open Android`. `Debug Web (PWA)` is the matching terminal launch for `dev:web`. `Preview` and `Run Desktop` first run `Build`. `Prepare Android` builds web output and syncs the native project; use `Open Android` afterward. Personal VS Code settings remain ignored.
 
-Browser debugging covers the web interface. Native audio, tray controls, global shortcuts, and Android background behavior need their own native checks.
+Default browser debugging controls actual mpv playback through Bun. Native window behavior, tray controls, global shortcuts, and Android background behavior need their own platform checks.
 
 ## GitHub CI
 
@@ -97,7 +101,7 @@ CI uses read-only repository access and no custom secrets. The configuration is 
 
 Synchronization, export/import, and backups are required for history, progress, source texts, subtitles, transcripts, notes, and the rest of the library. [DATA_PLAN.md](DATA_PLAN.md) records scope, conflict handling, restore behavior, and open decisions. It proposes local-first data with separate destination adapters; self-hosting, WebDAV, object storage, and cloud drives remain candidates. Media inclusion and encryption are explicit design choices.
 
-The first implementation is available in the browser under **Data and backups**. It stores library records in IndexedDB, migrates valid old browser progress/settings while retaining the originals, and exports an unencrypted JSON archive without media files. Import validates version, checksum, record links, and size before showing a preview. Conflicting variants are both retained; current versions stay active by default. A changed import saves the previous library atomically. **Previous local copy** restores that snapshot and retains the replaced data in the recovery slot. Export the JSON file to keep a copy outside browser storage.
+The first implementation is available in standalone PWA mode (`dev:web` or production preview) under **Data and backups**. It stores library records in IndexedDB, migrates valid old browser progress/settings while retaining the originals, and exports an unencrypted JSON archive without media files. Import validates version, checksum, record links, and size before showing a preview. Conflicting variants are both retained; current versions stay active by default. A changed import saves the previous library atomically. **Previous local copy** restores that snapshot and retains the replaced data in the recovery slot. Export the JSON file to keep a copy outside browser storage. Bun/native profiles are not included in this archive yet.
 
 Import/restore stops the initiating player; reselect the file afterward. Stale players in other tabs cannot overwrite restored data and ask for a reload. Matching one imported media record by filename, size, and modification time can restore its progress; changed/renamed files need future explicit relinking. Invalid legacy entries are reported and remain in the old storage, but are excluded from the new archive. The archive supports 16 MiB and 20,000 record variants. See [archive v1](src/data/FORMAT.md) for the record model and merge rules.
 

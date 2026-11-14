@@ -15,6 +15,7 @@
 - `LibraryTools.svelte` owns browser archive export, import preview, conflict-version priority, and local recovery controls. Native backup controls remain deferred until native adapters exist.
 - `data/` owns the shared record model, archive codec, browser migration, and transactional storage under its child contract.
 - `android-player.ts` defines the local Capacitor playback plugin contract.
+- `bun-player.ts` defines the authenticated same-origin control bridge for browser development. It carries commands and snapshots, without media bytes or local file paths.
 - `env.d.ts` defines the narrow desktop window and media bridge.
 - `pointer-input.ts` owns local mouse hover detection and pointer focus release.
 
@@ -29,6 +30,8 @@
 - Show the 20-entry recent list separately from session items. The recent command takes only an app-owned ID on native bridges. Reopening moves that file to the front. File selection still starts playback; automatic startup restoration does not.
 - Start the browser player only after its data adapter is ready. Stop and dispose it before import/restore, then recreate it without autoplay. Generation checks prevent stale players in other tabs from overwriting restored data.
 - The desktop interface sends validated playback commands and receives state. Never pass arbitrary paths or mpv commands from the page.
+- `shravanamBunHost` selects the local Bun player without enabling desktop window controls. It must not create a browser media player, migrate browser storage, or show browser backup tools. Keep transport failures visible and actionable. Native state polling must not erase file-dialog or unsupported-drop errors.
+- Browser control mode opens files through Bun's system dialog. Browser drops cannot provide native paths; explain how to use Open files instead. Keep native window OS drops and standalone PWA File handling intact.
 - Android uses the native service through the plugin and does not create a browser media element. Use the system picker; receive shared files in native code. Show audio-only video behavior and temporary file access explicitly. Native connection failures must not silently switch to browser playback.
 - Native player state is authoritative. Stop polling when the document is hidden and refresh on return; visibility changes must not pause native playback.
 - `FEATURE_PLAN.md` records playback, downloads, and background audio requirements. Resolve its open behavior choices before implementing the affected feature.

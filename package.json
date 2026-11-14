@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun scripts/serve.js",
+    "dev:web": "bun scripts/serve.js --web",
     "build": "bun scripts/build-web.js",
     "preview": "bun scripts/serve.js --preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",

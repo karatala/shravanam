@@ -7,8 +7,9 @@
   const russian = document.documentElement.lang === "ru";
   const text = (english: string, translation: string) => russian ? translation : english;
   const desktop = Boolean(window.shravanamDesktopHost);
-  const native = desktop || Capacitor.isNativePlatform();
-  let offlineStatus = $state(native ? text("Application is stored on this device", "Приложение хранится на этом устройстве") : text("Preparing application for offline use…", "Подготовка приложения к работе без сети…"));
+  const bunHost = Boolean(window.shravanamBunHost);
+  const native = desktop || bunHost || Capacitor.isNativePlatform();
+  let offlineStatus = $state(bunHost ? text("Local player controls. Keep the application terminal running.", "Управление локальным плеером. Оставьте терминал приложения запущенным.") : native ? text("Application is stored on this device", "Приложение хранится на этом устройстве") : text("Preparing application for offline use…", "Подготовка приложения к работе без сети…"));
   let online = $state(navigator.onLine);
   onMount(() => {
     let active = true;

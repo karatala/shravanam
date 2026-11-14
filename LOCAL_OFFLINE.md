@@ -4,6 +4,8 @@
 
 A browser needs HTTPS or a loopback address on the same device. `http://127.0.0.1:4173` works for local preview on the computer that runs the server. A phone needs its own loopback server or a separately configured trusted HTTPS host. The development server binds to loopback and does not prepare an offline cache.
 
+Default `bun run dev` is a control interface for the local Bun/mpv player and requires the server process to stay running. Use `bun run dev:web` for browser-only playback development; use production preview for service-worker and offline checks. Neither development mode installs a worker.
+
 Open the production app online and wait for the ready message before disconnecting. Clearing browser storage removes this cache and requires online preparation again. An installed update waits until all old app windows close; the next launch activates it. The worker removes only old Shravanam shell caches for the same scope.
 
 Desktop and Capacitor use bundled application files without a service worker. This says nothing about offline book availability, which is not implemented yet.

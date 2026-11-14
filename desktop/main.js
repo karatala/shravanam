@@ -1,14 +1,13 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
-import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { createMediaPlayer } from "./media.js";
 import { mediaExtensions } from "../src/playback.ts";
+import { desktopProfile } from "./profile.js";
 
 export async function runDesktop(assets) {
   const origin = "http://127.0.0.1:47870";
-  const userRoot = process.platform === "win32" ? process.env.LOCALAPPDATA || join(homedir(), "AppData", "Local") : process.platform === "darwin" ? join(homedir(), "Library", "Application Support") : process.env.XDG_DATA_HOME || join(homedir(), ".local", "share");
-  const profile = join(userRoot, "Shravanam");
+  const profile = desktopProfile();
   const sessionPath = join(profile, "open-session.json");
   const launchPaths = Bun.argv.slice(2).filter(argument => argument !== "--").map(path => resolve(path));
   async function forwardToRunningInstance() {

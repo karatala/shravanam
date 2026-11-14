@@ -1,5 +1,6 @@
 interface Window {
   shravanamDesktopHost?: boolean;
+  shravanamBunHost?: { token: string };
   shravanamOfflineEnabled?: boolean;
   showStartupError: () => void;
   shravanamDesktop?: {

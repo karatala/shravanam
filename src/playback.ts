@@ -8,7 +8,7 @@ export function mediaKind(name: string): "audio" | "video" | null {
 }
 
 export type MediaItem = { id: string; name: string; kind: "audio" | "video"; temporary?: boolean };
-export type PlaybackError = { code: "format" | "open" | "play" | "storage" | "missing-player" | "player" | "access" | "android-player" | "library-changed" | "recent-access" | "changed-file"; name?: string };
+export type PlaybackError = { code: "format" | "open" | "play" | "storage" | "missing-player" | "player" | "access" | "android-player" | "library-changed" | "recent-access" | "changed-file" | "host" | "picker" | "native-drop"; name?: string };
 export type PlaybackState = {
   items: MediaItem[];
   recent: MediaItem[];

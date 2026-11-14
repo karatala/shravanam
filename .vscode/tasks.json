@@ -11,6 +11,15 @@
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
     },
     {
+      "label": "Dev Web (PWA)",
+      "type": "process",
+      "command": "bun",
+      "args": ["run", "dev:web"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
       "label": "Check",
       "type": "process",
       "command": "bun",

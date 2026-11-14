@@ -8,6 +8,7 @@
 
 - `tasks.json` calls existing Bun package scripts.
 - `launch.json` follows Rachana's `node-terminal` pattern and runs `bun run dev` from the workspace root.
+- `Debug app` / `Dev` use Bun-owned mpv playback. `Debug Web (PWA)` / `Dev Web (PWA)` run `bun run dev:web` for the standalone browser adapter. Both use port 3000; run only one at a time.
 
 ## Local Contracts
 
@@ -16,7 +17,7 @@
 - Use either F5 or the Dev task to start the server, not both. Stop the terminal process with Ctrl+C; a Dev task can also be stopped through Tasks: Terminate Task.
 - Do not pass Vite's `--host` argument to the Bun server; it does not parse this option.
 - Keep personal `settings.json`, browser profiles, and other editor state ignored. Version only these shared tasks, launch configurations, and this contract.
-- Desktop and Android are the first native targets. Browser debugging does not verify native playback or background behavior.
+- Desktop and Android are the first native targets. Default browser debugging controls the shared native desktop player and requires mpv. Native window drops/associations, tray controls, and Android background behavior still need their own checks. Browser reload does not stop Bun playback; stopping the terminal does.
 
 ## Work Guidance
 

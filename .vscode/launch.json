@@ -7,6 +7,13 @@
       "request": "launch",
       "command": "bun run dev",
       "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Debug Web (PWA)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "bun run dev:web",
+      "cwd": "${workspaceFolder}"
     }
   ]
 }

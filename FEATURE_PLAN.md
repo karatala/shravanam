@@ -14,6 +14,8 @@ This document tracks implemented source and remaining work. ✅ marks completed 
 - ✅ Record synchronization, export/import, and backup/restore requirements in `DATA_PLAN.md`. Browser persistence now uses IndexedDB; native storage and remote destinations remain open.
 - ✅ Add the shared record model, JSON archive v1, browser migration, export/import preview, conflict preservation, and local recovery. Runtime verification remains pending.
 - ✅ Add a separate 20-file recent list and paused restoration of the last file in browser, desktop, and Android source. Browser restoration uses supported file handles and existing permission; otherwise it asks for access or reselection. Runtime verification remains pending.
+- ✅ Make default browser development a control surface for Bun-owned files and the shared mpv player. Add authenticated loopback commands, system file selection based on Rachana, independent development profile, and explicit `dev:web` mode for PWA checks.
+- [ ] Verify Bun control mode: native picker cancel/open, page reload and closed-tab playback, multiple control tabs, recent-file restoration after terminal restart, missing mpv, unavailable dialog, stale token after restart, and rejection of foreign Origin/Host/token requests.
 
 ## [ ] Data foundation: synchronization and recovery
 
@@ -31,7 +33,7 @@ This document tracks implemented source and remaining work. ✅ marks completed 
 
 ### [ ] Decide playback ownership
 
-The first desktop implementation uses a separate mpv process controlled by Bun through private JSON IPC. The interface reads state and sends validated commands. Browser development uses a browser media element. The future requirement to unload the desktop WebView must keep native playback, the sleep timer, and saved position alive. Closing the current desktop app still exits playback; tray mode and interface recreation are not implemented.
+The first desktop implementation uses a separate mpv process controlled by Bun through private JSON IPC. The interface reads state and sends validated commands. Default browser development controls this same engine through a local authenticated endpoint; `dev:web` explicitly selects a browser media element. Reloading or closing the development browser does not stop Bun playback. The future requirement to unload the desktop WebView must keep native playback, the sleep timer, and saved position alive. Closing the current desktop app still exits playback; tray mode and interface recreation are not implemented.
 
 | Target | Proposed direction | Required check before claiming support |
 | --- | --- | --- |
@@ -41,7 +43,7 @@ The first desktop implementation uses a separate mpv process controlled by Bun t
 | PWA | Browser player and browser-supported media controls | Record actual background and control support per browser; do not promise native parity |
 
 - ✅ Use mpv for desktop local playback and Media3 1.11.1 for Android local audio. Keep format, resource, packaging, and license validation open before distribution.
-- ✅ Store desktop progress and settings in `Shravanam/playback.json`, outside the WebView. Browser progress uses localStorage.
+- ✅ Store desktop progress and settings in `Shravanam/playback.json`, outside the WebView. Development control mode uses `Shravanam-dev/playback.json`; standalone PWA progress uses IndexedDB.
 - [ ] Define storage for downloaded media. The shell cache is not book storage.
 - ✅ Define shared select, play/pause, seek, speed, and interval commands and playback state in `src/playback.ts`. Android maps the same commands to its service. Desktop system controls, sleep timer, and tray integration remain later work.
 - ✅ Start with local files: MP3, M4A/M4B, AAC, FLAC, OGG/Opus, WAV, MP4/M4V, WebM, MKV, MOV. Browser codec support varies. Direct URLs and site links remain separate future inputs.

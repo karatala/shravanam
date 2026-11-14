@@ -3,18 +3,23 @@
   import { Capacitor } from "@capacitor/core";
   import { androidPlayer } from "./android-player";
   import { createBrowserPlayer } from "./browser-player";
-  import { formatTime, initialPlaybackState, mediaAccept, type PlaybackState, type PlaybackCommand } from "./playback";
+  import { formatTime, initialPlaybackState, mediaAccept, type PlaybackState, type PlaybackCommand, type PlaybackError } from "./playback";
   import { releasePointerFocus } from "./pointer-input";
   import { DataError } from "./data/model";
   import LibraryTools from "./LibraryTools.svelte";
   import { droppedBrowserFiles, pickBrowserFiles, type BrowserMediaFile } from "./browser-files";
+  import { BunPlayerError, createBunPlayer } from "./bun-player";
 
   const russian = document.documentElement.lang === "ru";
   const text = (english: string, translation: string) => russian ? translation : english;
   const desktop = Boolean(window.shravanamDesktopHost);
+  const bunPlayer = window.shravanamBunHost ? createBunPlayer(window.shravanamBunHost.token) : null;
+  const nativeDesktop = desktop || Boolean(bunPlayer);
+  const desktopPlayer = () => bunPlayer ?? window.shravanamDesktop;
   const android = Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
-  const nativePlayer = desktop || android;
+  const nativePlayer = nativeDesktop || android;
   let state = $state<PlaybackState>(initialPlaybackState());
+  let interfaceError = $state<PlaybackError | null>(null);
   let mediaElement: HTMLVideoElement;
   let fileInput: HTMLInputElement;
   let browserPlayer: Awaited<ReturnType<typeof createBrowserPlayer>> | undefined;
@@ -24,11 +29,14 @@
   let ready = $state(false);
   const current = $derived(state.items.find(item => item.id === state.currentId));
   const errorText = $derived.by(() => {
-    const failure = state.error;
+    const failure = interfaceError ?? state.error;
     if (!failure) return "";
     const name = failure.name ? ` «${failure.name}»` : "";
     if (failure.code === "format") return text(`Cannot open${name}. Choose a supported audio or video file, for example book.mp3 or chapter.m4b.`, `Не удалось открыть${name}. Выберите аудио или видео поддерживаемого формата, например book.mp3 или chapter.m4b.`);
     if (failure.code === "missing-player") return text("Cannot start playback: mpv was not found. Install mpv and add it to PATH, then open the file again.", "Не удалось начать воспроизведение: mpv не найден. Установите mpv и добавьте его в PATH, затем откройте файл снова.");
+    if (failure.code === "host") return text("Cannot connect to the local player. Start or restart bun run dev in the terminal, then reload this page.", "Нет связи с локальным плеером. Запустите или перезапустите bun run dev в терминале и обновите страницу.");
+    if (failure.code === "picker") return text("Cannot open the system file dialog. Close any existing dialog and try again. On Linux, install zenity or kdialog if neither is available.", "Не удалось открыть системный диалог выбора файла. Закройте уже открытый диалог и повторите попытку. На Linux установите zenity или kdialog, если их нет.");
+    if (failure.code === "native-drop") return text("Use Open files to select this file on the computer. A browser drop does not provide its disk path to the local player. File drops are supported in the desktop app window.", "Выберите этот файл через «Открыть файлы». При перетаскивании браузер не передаёт локальному плееру путь на диске. Перетаскивание доступно в окне desktop-приложения.");
     if (failure.code === "android-player") return text("Cannot connect to the Android player. Close and reopen the app. If this continues, install a current app build.", "Не удалось подключиться к плееру Android. Закройте и снова откройте приложение. Если ошибка повторяется, установите свежую сборку приложения.");
     if (failure.code === "access") return text(`Cannot access${name}. Select the file again with Open files and allow read access.`, `Нет доступа к файлу${name}. Выберите его снова через «Открыть файлы» и разрешите чтение.`);
     if (failure.code === "recent-access") return text(`Cannot reopen${name} automatically. Click it in Recent files to allow access, or select it again with Open files.`, `Не удалось автоматически открыть${name}. Нажмите на файл в списке последних, чтобы разрешить доступ, или выберите его снова через «Открыть файлы».`);
@@ -63,16 +71,18 @@
   function addFiles(files: BrowserMediaFile[]) { void browserPlayer?.addFiles(files).catch(browserFailure); }
 
   async function command(action: PlaybackCommand) {
+    interfaceError = null;
     try {
-      if (desktop) state = await window.shravanamDesktop!.playbackCommand(action);
+      if (nativeDesktop) state = await desktopPlayer()!.playbackCommand(action);
       else if (android) state = await androidPlayer.playbackCommand({ command: action });
       else await browserPlayer?.command(action);
     } catch (error) {
       if (!nativePlayer) browserFailure(error);
-      else { console.error(error); state = { ...state, error: { code: "player", name: current?.name } }; }
+      else { console.error(error); interfaceError = { code: error instanceof BunPlayerError ? error.code : "player", name: current?.name }; }
     }
   }
   async function openFiles() {
+    interfaceError = null;
     if (!nativePlayer) {
       try {
         const files = await pickBrowserFiles();
@@ -82,8 +92,8 @@
       }
       return;
     }
-    try { state = await (android ? androidPlayer.chooseMedia() : window.shravanamDesktop!.chooseMedia()); }
-    catch (error) { console.error(error); state = { ...state, error: { code: "open" } }; }
+    try { state = await (android ? androidPlayer.chooseMedia() : desktopPlayer()!.chooseMedia()); }
+    catch (error) { console.error(error); interfaceError = { code: error instanceof BunPlayerError ? error.code : "open" }; }
   }
   onMount(() => {
     mounted = true;
@@ -92,10 +102,10 @@
     let dragDepth = 0;
     if (!nativePlayer) void startBrowser(true).catch(browserFailure);
     const poll = async () => {
-      if (!nativePlayer || polling || document.hidden || (desktop && !window.shravanamDesktop)) return;
+      if (!nativePlayer || polling || document.hidden || (nativeDesktop && !desktopPlayer())) return;
       polling = true;
-      try { const next = await (android ? androidPlayer.getPlaybackState() : window.shravanamDesktop!.getPlaybackState()); if (active) { state = next; ready = true; } }
-      catch (error) { if (active) { console.error(error); state = { ...state, error: { code: android ? "android-player" : "player" } }; } }
+      try { const next = await (android ? androidPlayer.getPlaybackState() : desktopPlayer()!.getPlaybackState()); if (active) { state = next; ready = true; if (interfaceError?.code === "host") interfaceError = null; } }
+      catch (error) { if (active) { console.error(error); state = { ...state, error: { code: android ? "android-player" : bunPlayer ? "host" : "player" } }; } }
       finally { polling = false; }
     };
     void poll();
@@ -103,14 +113,15 @@
     const visibilityChanged = () => { if (!document.hidden) void poll(); };
     document.addEventListener("visibilitychange", visibilityChanged);
     const acceptsFiles = (event: DragEvent) => event.dataTransfer?.types.includes("Files");
-    const enter = (event: DragEvent) => { if (acceptsFiles(event)) { event.preventDefault(); dragDepth++; dragging = true; } };
-    const over = (event: DragEvent) => { if (acceptsFiles(event)) { event.preventDefault(); if (event.dataTransfer) event.dataTransfer.dropEffect = "copy"; } };
+    const enter = (event: DragEvent) => { if (acceptsFiles(event)) { event.preventDefault(); dragDepth++; dragging = !bunPlayer; } };
+    const over = (event: DragEvent) => { if (acceptsFiles(event)) { event.preventDefault(); if (event.dataTransfer) event.dataTransfer.dropEffect = bunPlayer ? "none" : "copy"; } };
     const leave = () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) dragging = false; };
     const drop = (event: DragEvent) => {
       if (!acceptsFiles(event)) return;
       event.preventDefault();
       dragging = false;
       dragDepth = 0;
+      if (bunPlayer) { interfaceError = { code: "native-drop" }; return; }
       if (!nativePlayer && ready && event.dataTransfer) void droppedBrowserFiles(event.dataTransfer).then(addFiles).catch(browserFailure);
     };
     const nativeDrag = (event: Event) => { dragging = Boolean((event as CustomEvent<boolean>).detail); };
@@ -151,7 +162,8 @@
 <section class:dragging aria-label={text("Player", "Плеер")}>
   <div class="open-row">
     <button type="button" class="action" disabled={!ready} onclick={openFiles} onpointerup={releasePointerFocus}>{text("Open files", "Открыть файлы")}</button>
-    {#if !android}<span>{dragging ? text("Drop files here", "Отпустите файлы здесь") : text("Or drop files from your file manager", "Или перетащите файлы из файлового менеджера")}</span>{/if}
+    {#if bunPlayer}<span>{text("Select files through the system dialog", "Выберите файлы через системный диалог")}</span>
+    {:else if !android}<span>{dragging ? text("Drop files here", "Отпустите файлы здесь") : text("Or drop files from your file manager", "Или перетащите файлы из файлового менеджера")}</span>{/if}
   </div>
   <input bind:this={fileInput} type="file" accept={mediaAccept} multiple hidden onchange={() => { addFiles(Array.from(fileInput.files ?? [], file => ({ file }))); fileInput.value = ""; }} />
   {#if errorText}<p class="error" role="alert">{errorText}</p>{/if}
@@ -189,7 +201,7 @@
       <ul>{#each state.recent as item (item.id)}<li><button type="button" class="file" disabled={!ready} onclick={() => command({ type: "recent", id: item.id })} onpointerup={releasePointerFocus}>{item.name}{item.temporary ? text(" · access may need renewal", " · может потребоваться доступ заново") : ""}</button></li>{/each}</ul>
     </details>
   {/if}
-  {#if !desktop && !Capacitor.isNativePlatform()}
+  {#if !nativeDesktop && !Capacitor.isNativePlatform()}
     <LibraryTools enabled={ready} beforeExport={async () => { await browserPlayer?.flush(); }} beforeChange={stopBrowser} afterChange={startBrowser} />
   {/if}
 </section>
