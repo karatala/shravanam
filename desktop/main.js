@@ -98,6 +98,7 @@ export async function runDesktop(assets) {
       async playbackCommand(command) { return (await mediaReady).command(command); },
     });
     for (const paths of pendingBatches) if (paths.length) acceptPaths(paths);
+    if (!pendingBatches.some(paths => paths.length)) void mediaReady.then(media => media.restoreLast()).catch(error => console.error("Could not restore last media", error));
     app.on("application-close-requested", () => { void requestWindowClose(); });
     const media = await mediaReady;
     process.once("exit", () => media.terminate());

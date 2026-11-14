@@ -77,7 +77,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - no need for backward compatibility, app is not yet released
 - when writing md plans, mark incomplete items/stages/phases with `[ ]` so user can easily find them using global search
 - when implementing tasks from md todo/fixme/plan document, mark completed sections or steps with ✅ emoji, and when the entire doc is completed, make its main header start with "# ✅ COMPLETED: "
-- The user permits staging and committing completed requested changes without another confirmation. Keep unrelated changes out of commits. Never push changes.
+- Commit completed requested changes without another confirmation. Keep unrelated changes out of commits. Never push changes.
 - Before removing or reverting temporary, test, experimental or other uncommitted changes, save the affected changes in a named Git stash so they can be restored and tested again. Do not discard them with restore, checkout, reset or reverse patches. Keep unrelated user changes in place and report the stash name. For test edits inside the running editor, save a separate project copy before undoing them because Git stash does not contain editor data.
 - never hard-wrap text at a fixed line width
 - never delete in code todo/fixme comments until they were implemented/fixed
@@ -105,6 +105,7 @@ Read `DOX.md` before editing. This file is the repository-wide contract.
 - Media intake must include external OS file drag-and-drop and OS Open with/default-file associations into Shravanam. Internal extension-to-player rules are not requested. Optional persistent website routing must have an explicit enable and disable/restore flow; respect system user choices and preserve unrelated or newer handler settings. `FEATURE_PLAN.md` owns the implementation details and checks.
 - Library data must support cross-device synchronization, portable export/import, and recoverable backups, including history, texts, subtitles, and notes. `DATA_PLAN.md` owns the data design and open destination choices (self-hosting, WebDAV, and cloud storage). Do not select a provider or treat current playback stores as a sync-ready database without this design.
 - `src/data` implements the first shared record/archive format and browser IndexedDB adapter. Browser import/export does not back up native playback stores. Keep native adapter migration, file relinking, and synchronization as explicit remaining work.
+- Remember the last 20 opened local files separately from the active file list. Restore the most recent file at its saved position on startup, paused. Explicit incoming files take priority. Keep paths, URI grants, and browser handles local; request file access again when the platform requires it.
 
 ## Startup and Offline Hosting
 

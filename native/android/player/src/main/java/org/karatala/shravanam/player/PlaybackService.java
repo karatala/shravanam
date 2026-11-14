@@ -35,6 +35,7 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.json.JSONObject;
+import org.json.JSONArray;
 
 @OptIn(markerClass = UnstableApi.class)
 public final class PlaybackService extends MediaSessionService {
@@ -43,6 +44,7 @@ public final class PlaybackService extends MediaSessionService {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService fileWorker = Executors.newSingleThreadExecutor();
     private final LinkedHashMap<String, MediaFile> files = new LinkedHashMap<>();
+    private final ArrayList<MediaFile> recent = new ArrayList<>();
     private ExoPlayer player;
     private SessionPlayer controls;
     private MediaSession session;
@@ -53,6 +55,9 @@ public final class PlaybackService extends MediaSessionService {
     private int backward;
     private int forward;
     private boolean destroyed;
+    private boolean changingMedia;
+    private boolean openingFile;
+    private long selectionVersion;
     private final Runnable checkpoint = new Runnable() {
         @Override public void run() {
             PlaybackService.this.saveProgress();
@@ -66,6 +71,15 @@ public final class PlaybackService extends MediaSessionService {
         this.settings = this.getSharedPreferences("shravanam.playback", MODE_PRIVATE);
         this.backward = Math.max(1, Math.min(600, this.settings.getInt("backward", 15)));
         this.forward = Math.max(1, Math.min(600, this.settings.getInt("forward", 30)));
+        try {
+            JSONArray saved = new JSONArray(this.settings.getString("recent", "[]"));
+            for (int idx = 0; idx < Math.min(20, saved.length()); idx++) {
+                MediaFile file = MediaFile.fromStored(saved.getJSONObject(idx));
+                boolean duplicate = false;
+                for (MediaFile existing : this.recent) if (existing.uri.equals(file.uri)) duplicate = true;
+                if (!duplicate) this.recent.add(file);
+            }
+        } catch (Exception failure) { Log.e("Shravanam", "Cannot read recent files", failure); this.error = PlaybackService.failure("storage", null); }
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(this.getResources().openRawResource(R.raw.shravanam_media_types), StandardCharsets.UTF_8))) {
             StringBuilder json = new StringBuilder();
             String line;
@@ -105,6 +119,7 @@ public final class PlaybackService extends MediaSessionService {
         });
         PlaybackService.instance = this;
         this.handler.postDelayed(this.checkpoint, 5000);
+        if (!this.recent.isEmpty()) this.openRecent(this.recent.get(0).id, true);
     }
 
     @Override public MediaSession onGetSession(MediaSession.ControllerInfo controller) { return this.session; }
@@ -164,6 +179,8 @@ public final class PlaybackService extends MediaSessionService {
     }
 
     void openUris(List<Uri> uris, Runnable finished) {
+        long version = ++this.selectionVersion;
+        this.openingFile = true;
         this.fileWorker.execute(() -> {
             ArrayList<MediaFile> accepted = new ArrayList<>();
             JSObject firstError = null;
@@ -178,8 +195,10 @@ public final class PlaybackService extends MediaSessionService {
             this.handler.post(() -> {
                 if (this.destroyed) return;
                 try {
+                    if (version != this.selectionVersion) return;
+                    this.openingFile = false;
                     for (MediaFile file : accepted) this.files.put(file.id, file);
-                    if (!accepted.isEmpty()) this.select(accepted.get(0).id);
+                    if (!accepted.isEmpty()) { this.remember(accepted); this.select(accepted.get(0).id, true); }
                     if (importError != null) this.error = importError;
                 } catch (RuntimeException failure) {
                     Log.e("Shravanam", "Cannot start selected media", failure);
@@ -189,24 +208,76 @@ public final class PlaybackService extends MediaSessionService {
         });
     }
 
-    private void select(String id) {
+    private void remember(List<MediaFile> entries) {
+        ArrayList<MediaFile> ordered = new ArrayList<>();
+        ArrayList<MediaFile> candidates = new ArrayList<>(entries);
+        candidates.addAll(this.recent);
+        for (MediaFile file : candidates) {
+            boolean duplicate = false;
+            for (MediaFile existing : ordered) if (existing.uri.equals(file.uri)) duplicate = true;
+            if (!duplicate) ordered.add(file);
+            if (ordered.size() == 20) break;
+        }
+        this.recent.clear();
+        this.recent.addAll(ordered);
+        JSONArray saved = new JSONArray();
+        for (MediaFile file : this.recent) saved.put(file.stored());
+        this.settings.edit().putString("recent", saved.toString()).apply();
+    }
+
+    private void openRecent(String id, boolean automatic) {
+        MediaFile selected = null;
+        for (MediaFile file : this.recent) if (file.id.equals(id)) { selected = file; break; }
+        if (selected == null) return;
+        MediaFile saved = selected;
+        long version = ++this.selectionVersion;
+        this.openingFile = true;
+        this.fileWorker.execute(() -> {
+            MediaFile opened = null;
+            JSObject failure = null;
+            try {
+                opened = MediaFile.read(this.getContentResolver(), saved.uri, this.types);
+                if (!opened.id.equals(saved.id)) { opened = null; failure = PlaybackService.failure("changed-file", saved.name); }
+            } catch (Exception error) {
+                Log.e("Shravanam", "Cannot reopen recent Android file", error);
+                failure = PlaybackService.failure(error instanceof SecurityException ? "access" : "open", saved.name);
+            }
+            MediaFile file = opened;
+            JSObject openError = failure;
+            this.handler.post(() -> {
+                if (this.destroyed || version != this.selectionVersion) return;
+                this.openingFile = false;
+                if (file == null) { this.error = openError; return; }
+                try { this.files.put(file.id, file); this.select(file.id, !automatic); }
+                catch (RuntimeException error) { Log.e("Shravanam", "Cannot restore Android playback", error); this.error = PlaybackService.failure("play", file.name); }
+            });
+        });
+    }
+
+    private void select(String id, boolean autoplay) {
         MediaFile file = this.files.get(id);
         if (file == null) return;
         this.saveProgress();
         this.error = null;
-        this.current = file;
         long position = Math.max(0, this.settings.getLong("position." + id, 0));
         MediaItem item = new MediaItem.Builder().setMediaId(id).setUri(file.uri).setMediaMetadata(new MediaMetadata.Builder().setTitle(file.name).build()).build();
-        this.player.setMediaItem(item, position);
-        this.player.prepare();
-        this.player.play();
+        this.changingMedia = true;
+        try {
+            this.player.pause();
+            this.current = file;
+            this.player.setMediaItem(item, position);
+            this.player.prepare();
+            if (autoplay) this.player.play();
+        } finally { this.changingMedia = false; }
+        this.remember(java.util.Collections.singletonList(file));
     }
 
     void command(JSObject command) {
         if (command == null) throw new IllegalArgumentException("Missing playback command");
         String type = command.getString("type", "");
         switch (type) {
-            case "select": this.select(command.getString("id", "")); break;
+            case "select": ++this.selectionVersion; this.openingFile = false; this.select(command.getString("id", ""), true); break;
+            case "recent": this.openRecent(command.getString("id", ""), false); break;
             case "toggle":
                 if (this.player.getPlayWhenReady() && this.player.getPlaybackState() != Player.STATE_ENDED && this.player.getPlayerError() == null) this.controls.pause();
                 else this.controls.play();
@@ -237,17 +308,19 @@ public final class PlaybackService extends MediaSessionService {
     JSObject snapshot() {
         JSArray items = new JSArray();
         for (MediaFile file : this.files.values()) items.put(file.snapshot());
+        JSArray recent = new JSArray();
+        for (MediaFile file : this.recent) recent.put(file.snapshot());
         long duration = this.player.getDuration();
-        return new JSObject().put("items", items).put("currentId", this.current == null ? JSONObject.NULL : this.current.id)
+        return new JSObject().put("items", items).put("recent", recent).put("currentId", this.current == null ? JSONObject.NULL : this.current.id)
             .put("time", Math.max(0, this.player.getCurrentPosition()) / 1000.0).put("duration", duration > 0 ? duration / 1000.0 : 0)
             .put("paused", !this.player.getPlayWhenReady() || this.player.getPlaybackState() == Player.STATE_ENDED || this.player.getPlayerError() != null)
-            .put("loading", this.player.getPlaybackState() == Player.STATE_BUFFERING).put("speed", this.player.getPlaybackParameters().speed)
+            .put("loading", this.openingFile || this.player.getPlaybackState() == Player.STATE_BUFFERING).put("speed", this.player.getPlaybackParameters().speed)
             .put("backward", this.backward).put("forward", this.forward).put("error", this.error == null ? JSONObject.NULL : this.error);
     }
 
     void saveProgress() {
         SharedPreferences.Editor edit = this.settings.edit().putFloat("speed", this.player.getPlaybackParameters().speed).putInt("backward", this.backward).putInt("forward", this.forward);
-        if (this.current != null && this.player.getPlaybackState() != Player.STATE_IDLE && this.player.getPlayerError() == null) {
+        if (!this.changingMedia && this.current != null && this.player.getPlaybackState() != Player.STATE_IDLE && this.player.getPlayerError() == null) {
             long position = this.player.getPlaybackState() == Player.STATE_ENDED ? 0 : Math.max(0, this.player.getCurrentPosition());
             edit.putLong("position." + this.current.id, position);
         }

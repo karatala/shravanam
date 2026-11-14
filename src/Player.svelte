@@ -7,6 +7,7 @@
   import { releasePointerFocus } from "./pointer-input";
   import { DataError } from "./data/model";
   import LibraryTools from "./LibraryTools.svelte";
+  import { droppedBrowserFiles, pickBrowserFiles, type BrowserMediaFile } from "./browser-files";
 
   const russian = document.documentElement.lang === "ru";
   const text = (english: string, translation: string) => russian ? translation : english;
@@ -30,6 +31,8 @@
     if (failure.code === "missing-player") return text("Cannot start playback: mpv was not found. Install mpv and add it to PATH, then open the file again.", "Не удалось начать воспроизведение: mpv не найден. Установите mpv и добавьте его в PATH, затем откройте файл снова.");
     if (failure.code === "android-player") return text("Cannot connect to the Android player. Close and reopen the app. If this continues, install a current app build.", "Не удалось подключиться к плееру Android. Закройте и снова откройте приложение. Если ошибка повторяется, установите свежую сборку приложения.");
     if (failure.code === "access") return text(`Cannot access${name}. Select the file again with Open files and allow read access.`, `Нет доступа к файлу${name}. Выберите его снова через «Открыть файлы» и разрешите чтение.`);
+    if (failure.code === "recent-access") return text(`Cannot reopen${name} automatically. Click it in Recent files to allow access, or select it again with Open files.`, `Не удалось автоматически открыть${name}. Нажмите на файл в списке последних, чтобы разрешить доступ, или выберите его снова через «Открыть файлы».`);
+    if (failure.code === "changed-file") return text(`File${name} has changed. Select it again with Open files to open the current version.`, `Файл${name} изменился. Выберите его снова через «Открыть файлы», чтобы открыть текущую версию.`);
     if (failure.code === "library-changed") return text("Library data changed in another window. Reload this page, then reopen the media file.", "Данные библиотеки изменены в другом окне. Перезагрузите страницу и откройте медиафайл снова.");
     if (failure.code === "storage") return text("Cannot save playback progress or settings. Check free space and storage access, then try again.", "Не удалось сохранить позицию или настройки. Проверьте свободное место и доступ к хранилищу, затем повторите попытку.");
     if (failure.code === "open") return text(`Cannot read${name}. Check that the file exists and is accessible, then open it again.`, `Не удалось прочитать${name}. Проверьте, что файл существует и доступен, затем откройте его снова.`);
@@ -40,12 +43,14 @@
     console.error(error);
     state = { ...state, loading: false, error: { code: error instanceof DataError && error.code === "changed" ? "library-changed" : "storage" } };
   }
-  async function startBrowser() {
+  async function startBrowser(restore = false) {
     const version = ++browserVersion;
     ready = false;
     const player = await createBrowserPlayer(mediaElement, next => { if (mounted && version === browserVersion) state = next; });
     if (!mounted || version !== browserVersion) { await player.dispose(); return; }
     browserPlayer = player;
+    if (restore) await player.restoreLast();
+    if (!mounted || version !== browserVersion) return;
     ready = true;
   }
   async function stopBrowser() {
@@ -55,7 +60,7 @@
     browserPlayer = undefined;
     await player?.dispose();
   }
-  function addFiles(files: File[]) { void browserPlayer?.addFiles(files).catch(browserFailure); }
+  function addFiles(files: BrowserMediaFile[]) { void browserPlayer?.addFiles(files).catch(browserFailure); }
 
   async function command(action: PlaybackCommand) {
     try {
@@ -68,7 +73,15 @@
     }
   }
   async function openFiles() {
-    if (!nativePlayer) { fileInput.click(); return; }
+    if (!nativePlayer) {
+      try {
+        const files = await pickBrowserFiles();
+        if (files === null) fileInput.click(); else addFiles(files);
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === "AbortError")) { console.error(error); state = { ...state, error: { code: "open" } }; }
+      }
+      return;
+    }
     try { state = await (android ? androidPlayer.chooseMedia() : window.shravanamDesktop!.chooseMedia()); }
     catch (error) { console.error(error); state = { ...state, error: { code: "open" } }; }
   }
@@ -77,7 +90,7 @@
     let active = true;
     let polling = false;
     let dragDepth = 0;
-    if (!nativePlayer) void startBrowser().catch(browserFailure);
+    if (!nativePlayer) void startBrowser(true).catch(browserFailure);
     const poll = async () => {
       if (!nativePlayer || polling || document.hidden || (desktop && !window.shravanamDesktop)) return;
       polling = true;
@@ -98,7 +111,7 @@
       event.preventDefault();
       dragging = false;
       dragDepth = 0;
-      if (!nativePlayer) addFiles(Array.from(event.dataTransfer?.files ?? []));
+      if (!nativePlayer && ready && event.dataTransfer) void droppedBrowserFiles(event.dataTransfer).then(addFiles).catch(browserFailure);
     };
     const nativeDrag = (event: Event) => { dragging = Boolean((event as CustomEvent<boolean>).detail); };
     const keydown = (event: KeyboardEvent) => {
@@ -140,7 +153,7 @@
     <button type="button" class="action" disabled={!ready} onclick={openFiles} onpointerup={releasePointerFocus}>{text("Open files", "Открыть файлы")}</button>
     {#if !android}<span>{dragging ? text("Drop files here", "Отпустите файлы здесь") : text("Or drop files from your file manager", "Или перетащите файлы из файлового менеджера")}</span>{/if}
   </div>
-  <input bind:this={fileInput} type="file" accept={mediaAccept} multiple hidden onchange={() => { addFiles(Array.from(fileInput.files ?? [])); fileInput.value = ""; }} />
+  <input bind:this={fileInput} type="file" accept={mediaAccept} multiple hidden onchange={() => { addFiles(Array.from(fileInput.files ?? [], file => ({ file }))); fileInput.value = ""; }} />
   {#if errorText}<p class="error" role="alert">{errorText}</p>{/if}
   {#if !nativePlayer}<video bind:this={mediaElement} class:audio-only={current?.kind !== "video"} playsinline preload="metadata"><track kind="captions" /></video>{/if}
   {#if current}
@@ -168,6 +181,13 @@
   </details>
   {#if state.items.length}
     <ul>{#each state.items as item (item.id)}<li><button type="button" class="file" aria-current={item.id === state.currentId ? "true" : undefined} onclick={() => command({ type: "select", id: item.id })} onpointerup={releasePointerFocus}>{item.name}</button></li>{/each}</ul>
+  {/if}
+  {#if state.recent?.length}
+    <details>
+      <summary>{text("Recent files", "Последние файлы")}</summary>
+      <p class="hint">{text("The last file opens paused on startup when file access is available.", "При запуске последний файл открывается на паузе, если доступ к нему сохранён.")}</p>
+      <ul>{#each state.recent as item (item.id)}<li><button type="button" class="file" disabled={!ready} onclick={() => command({ type: "recent", id: item.id })} onpointerup={releasePointerFocus}>{item.name}{item.temporary ? text(" · access may need renewal", " · может потребоваться доступ заново") : ""}</button></li>{/each}</ul>
+    </details>
   {/if}
   {#if !desktop && !Capacitor.isNativePlatform()}
     <LibraryTools enabled={ready} beforeExport={async () => { await browserPlayer?.flush(); }} beforeChange={stopBrowser} afterChange={startBrowser} />

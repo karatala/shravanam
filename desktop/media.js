@@ -1,6 +1,6 @@
 import { realpath, stat, readFile, writeFile, rename } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { basename, join } from "node:path";
+import { basename, isAbsolute, join } from "node:path";
 import { initialPlaybackState, mediaKind, validPlaybackCommand } from "../src/playback.ts";
 import { MpvPlayer } from "./mpv.js";
 
@@ -12,6 +12,8 @@ export async function createMediaPlayer(profile) {
   let serial = Promise.resolve();
   let closing = false;
   let positions = {};
+  let recent = [];
+  let openedExplicitly = false;
   try {
     const settings = JSON.parse(await readFile(settingsPath, "utf8"));
     if (!validPlaybackCommand({ type: "speed", value: settings.speed }) || !validPlaybackCommand({ type: "intervals", backward: settings.backward, forward: settings.forward })) throw new Error("Invalid playback settings");
@@ -19,31 +21,65 @@ export async function createMediaPlayer(profile) {
     state.backward = settings.backward;
     state.forward = settings.forward;
     if (settings.positions && typeof settings.positions === "object" && !Array.isArray(settings.positions)) positions = Object.fromEntries(Object.entries(settings.positions).filter(([id, time]) => /^[a-f0-9]{64}$/.test(id) && Number.isFinite(time) && time >= 0));
+    if (Array.isArray(settings.recent)) recent = settings.recent.filter(entry => entry && /^[a-f0-9]{64}$/.test(entry.id) && typeof entry.path === "string" && isAbsolute(entry.path) && !entry.path.includes("\0") && typeof entry.name === "string" && mediaKind(entry.name) === entry.kind).slice(0, 20);
   } catch (error) { if (error.code !== "ENOENT") { console.error(error); state.error = { code: "storage" }; } }
   const player = new MpvPlayer(profile, code => { if (code) state.error = { code, name: state.items.find(item => item.id === currentId)?.name }; });
   player.state.speed = state.speed;
-  const snapshot = () => ({ ...state, ...(currentId ? player.state : {}), currentId, items: [...state.items] });
+  const snapshot = () => ({ ...state, ...(currentId ? player.state : {}), currentId, items: [...state.items], recent: recent.map(({ id, name, kind }) => ({ id, name, kind })) });
   function queue(action) {
     const next = serial.then(async () => { if (!closing) await action(); }).catch(error => {
       console.error("Desktop media action failed", error);
-      state.error = { code: error.code === "missing-player" ? "missing-player" : "player", name: state.items.find(item => item.id === currentId)?.name };
+      state.error = { code: ["missing-player", "open", "changed-file"].includes(error.code) ? error.code : "player", name: error.mediaName ?? state.items.find(item => item.id === currentId)?.name };
     });
     serial = next;
     return next.then(snapshot);
   }
-  async function select(id) {
+  async function inspectPath(candidate) {
+    const path = await realpath(candidate);
+    const metadata = await stat(path);
+    if (!metadata.isFile()) throw new Error("Not a file");
+    const name = basename(path);
+    const kind = mediaKind(name);
+    if (!kind) throw new Error("Unsupported file");
+    const id = createHash("sha256").update(path).update(`\0${metadata.size}\0${metadata.mtimeMs}`).digest("hex");
+    return { id, path, name, kind };
+  }
+  function register(entry) {
+    if (!paths.has(entry.id)) { paths.set(entry.id, entry.path); state.items.push({ id: entry.id, name: entry.name, kind: entry.kind }); }
+  }
+  function remember(entries) {
+    const ordered = [];
+    for (const entry of [...entries, ...recent]) {
+      if (!ordered.some(saved => saved.path === entry.path)) ordered.push(entry);
+      if (ordered.length === 20) break;
+    }
+    recent = ordered;
+  }
+  async function select(id, autoplay = true) {
     const path = paths.get(id);
     if (!path) return;
+    let entry;
+    try { entry = await inspectPath(path); }
+    catch (error) { throw Object.assign(error, { code: "open", mediaName: basename(path) }); }
+    if (entry.id !== id) throw Object.assign(new Error("File changed"), { code: "changed-file", mediaName: entry.name });
     state.error = null;
     await saveSettings();
     currentId = id;
-    await player.load(path, state.speed, positions[id] ?? 0);
+    await player.load(path, state.speed, positions[id] ?? 0, autoplay);
+    remember([entry]);
+    await saveSettings();
+  }
+  async function openRecent(id, autoplay) {
+    const entry = recent.find(item => item.id === id);
+    if (!entry) return;
+    register(entry);
+    await select(id, autoplay);
   }
   async function saveSettings() {
     if (currentId && player.loaded && !player.state.loading) positions[currentId] = player.state.duration > 0 && player.state.time >= player.state.duration ? 0 : player.state.time;
     const temporary = `${settingsPath}.pending`;
     try {
-      await writeFile(temporary, JSON.stringify({ speed: state.speed, backward: state.backward, forward: state.forward, positions }), { mode: 0o600 });
+      await writeFile(temporary, JSON.stringify({ speed: state.speed, backward: state.backward, forward: state.forward, positions, recent }), { mode: 0o600 });
       await rename(temporary, settingsPath);
     } catch (error) { console.error(error); state.error = { code: "storage" }; }
   }
@@ -57,31 +93,35 @@ export async function createMediaPlayer(profile) {
   }, 5000);
   return {
     snapshot,
+    restoreLast() { return queue(async () => { if (!openedExplicitly && !currentId && recent.length) await openRecent(recent[0].id, false); }); },
     openPaths(incoming) {
+      if (incoming.length) openedExplicitly = true;
       return queue(async () => {
         let firstId;
         let failure;
+        const entries = [];
         for (const candidate of incoming) {
           if (typeof candidate !== "string" || candidate.includes("\0")) continue;
           const name = basename(candidate);
           const kind = mediaKind(name);
           if (!kind) { failure ??= { code: "format", name }; continue; }
           try {
-            const path = await realpath(candidate);
-            const metadata = await stat(path);
-            if (!metadata.isFile()) throw new Error("Not a file");
-            const id = createHash("sha256").update(path).update(`\0${metadata.size}\0${metadata.mtimeMs}`).digest("hex");
-            if (!paths.has(id)) { paths.set(id, path); state.items.push({ id, name, kind }); }
-            firstId ??= id;
+            const entry = await inspectPath(candidate);
+            register(entry);
+            entries.push(entry);
+            firstId ??= entry.id;
           } catch (error) { console.error(error); failure ??= { code: "open", name }; }
         }
+        if (entries.length) { remember(entries); await saveSettings(); }
         if (firstId) await select(firstId);
         if (failure) state.error = failure;
       });
     },
     command(command) {
       if (!validPlaybackCommand(command)) return Promise.resolve(snapshot());
+      if (command.type === "select" || command.type === "recent") openedExplicitly = true;
       return queue(async () => {
+        if (command.type === "recent") await openRecent(command.id, true);
         if (command.type === "select") await select(command.id);
         if (command.type === "toggle" && currentId) {
           if (!player.loaded) await select(currentId);

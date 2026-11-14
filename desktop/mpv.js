@@ -151,7 +151,7 @@ export class MpvPlayer {
     });
   }
 
-  async load(path, speed, position = 0) {
+  async load(path, speed, position = 0, autoplay = true) {
     await this.start();
     this.state = { time: 0, duration: 0, paused: true, loading: true, speed };
     this.loaded = false;
@@ -167,9 +167,9 @@ export class MpvPlayer {
       if (Number.isFinite(duration)) this.state.duration = duration;
       if (position > 0 && position < this.state.duration) { await this.request(["seek", position, "absolute+exact"]); this.state.time = position; }
       await this.request(["set_property", "speed", speed]);
-      await this.request(["set_property", "pause", false]);
+      await this.request(["set_property", "pause", !autoplay]);
       this.state.speed = speed;
-      this.state.paused = false;
+      this.state.paused = !autoplay;
     } finally {
       clearTimeout(timer);
       this.waitForLoad = null;

@@ -1,9 +1,11 @@
 import { canonical, DataError, defaultSettings, validFile, validSettings, validateLibrary, type FileIdentity, type Library, type LibraryRecord, type PlaybackSettings, type Values } from "./model";
 import { mergeLibraries } from "./archive";
+import type { BrowserFileHandle } from "../browser-files";
 
 type Row = { key?: number; record: LibraryRecord };
 type Identity = { prefix: string; counter: number; generation: number; skippedLegacy: number };
 export type Binding = { mediaId: string; progressId: string; generation: number };
+export type BrowserRecent = { id: string; file: FileIdentity; kind: "audio" | "video"; handle?: BrowserFileHandle };
 type Recovery = { createdAt: number; library: Library };
 const fileKey = (file: FileIdentity) => JSON.stringify([file.name, file.size, file.lastModified]);
 const documentFrom = (rows: Row[]): Library => validateLibrary({ schemaVersion: 1, records: rows.map(row => row.record) });
@@ -121,6 +123,37 @@ async function connect() {
   }
 
   return {
+    recentFiles: () => transaction<BrowserRecent[]>(db, ["meta", "records"], "readonly", (tx, read, finish) => {
+      read(tx.objectStore("meta").get("recent"), (recent: BrowserRecent[] | undefined) => {
+        read(tx.objectStore("records").index("kind").getAll("media"), (rows: Row[]) => {
+          const primary = new Map<string, LibraryRecord>();
+          for (const row of rows) if (!primary.has(row.record.id)) primary.set(row.record.id, row.record);
+          finish((recent ?? []).filter(entry => {
+            const record = primary.get(entry.id);
+            return record?.kind === "media" && record.value.file && fileKey(record.value.file) === fileKey(entry.file);
+          }).slice(0, 20));
+        });
+      });
+    }),
+    rememberRecent(entries: BrowserRecent[], generation: number) {
+      return transaction<BrowserRecent[]>(db, ["meta"], "readwrite", (tx, read, finish) => {
+        const meta = tx.objectStore("meta");
+        read(meta.get("identity"), (identity: Identity) => {
+          if (identity.generation !== generation) throw new DataError("changed");
+          read(meta.get("recent"), (recent: BrowserRecent[] | undefined) => {
+            const result: BrowserRecent[] = [];
+            for (const entry of [...entries, ...(recent ?? [])]) {
+              if (result.some(saved => saved.id === entry.id)) continue;
+              const handle = entry.handle ?? recent?.find(saved => saved.id === entry.id)?.handle;
+              result.push({ ...entry, ...(handle ? { handle } : {}) });
+              if (result.length === 20) break;
+            }
+            meta.put(result, "recent");
+            finish(result);
+          });
+        });
+      });
+    },
     snapshot: () => transaction<Library>(db, ["records"], "readonly", (tx, read, finish) => read(tx.objectStore("records").getAll(), rows => finish(documentFrom(rows)))),
     recovery: () => transaction<Recovery | undefined>(db, ["recovery"], "readonly", (tx, read, finish) => read(tx.objectStore("recovery").get("previous"), finish)),
     migrationWarnings: () => transaction<number>(db, ["meta"], "readonly", (tx, read, finish) => read(tx.objectStore("meta").get("identity"), (identity: Identity) => finish(identity.skippedLegacy))),

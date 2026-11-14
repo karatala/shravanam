@@ -1,5 +1,6 @@
 import { initialPlaybackState, mediaKind, validPlaybackCommand, type PlaybackState, type PlaybackCommand } from "./playback";
-import { browserLibrary, type Binding } from "./data/browser-store";
+import { browserLibrary, type Binding, type BrowserRecent } from "./data/browser-store";
+import type { BrowserMediaFile } from "./browser-files";
 import { DataError } from "./data/model";
 
 export async function createBrowserPlayer(element: HTMLVideoElement, publish: (state: PlaybackState) => void) {
@@ -7,12 +8,17 @@ export async function createBrowserPlayer(element: HTMLVideoElement, publish: (s
   const state = initialPlaybackState();
   const { settings, generation } = await library.playbackDefaults();
   Object.assign(state, settings);
+  let recent = await library.recentFiles();
+  state.recent = recent.map(entry => ({ id: entry.id, name: entry.file.name, kind: entry.kind, temporary: !entry.handle }));
   const sources = new Map<string, string>();
   const bindings = new Map<string, Binding>();
+  const opened = new Map<string, BrowserRecent>();
   let lastSave = 0;
   let loadVersion = 0;
+  let intakeVersion = 0;
   let resumeTime: number | null = null;
   let disposed = false;
+  let autoplayOnLoad = false;
   const emit = () => { if (!disposed) publish({ ...state, items: [...state.items] }); };
   const storageError = (error: unknown) => {
     console.error("Library write failed", error);
@@ -54,7 +60,7 @@ export async function createBrowserPlayer(element: HTMLVideoElement, publish: (s
     if (resumeTime !== null && Number.isFinite(element.duration)) element.currentTime = resumeTime < element.duration ? resumeTime : 0;
     resumeTime = null;
     synchronize();
-    void play();
+    if (autoplayOnLoad) void play();
   }
   function failed() {
     resumeTime = null;
@@ -64,23 +70,37 @@ export async function createBrowserPlayer(element: HTMLVideoElement, publish: (s
     emit();
   }
   function paused() { synchronize(); savePosition(); }
-  async function select(id: string) {
+  async function remember(entries: BrowserRecent[]) {
+    await library.rememberRecent(entries, generation);
+    recent = await library.recentFiles();
+    state.recent = recent.map(entry => ({ id: entry.id, name: entry.file.name, kind: entry.kind, temporary: !entry.handle }));
+  }
+  async function select(id: string, autoplay = true) {
     const url = sources.get(id);
     const binding = bindings.get(id);
     if (!url || !binding || disposed) return;
     state.error = null;
     const version = ++loadVersion;
+    const intake = intakeVersion;
     await persistPosition();
-    if (version !== loadVersion || disposed) return;
+    if (version !== loadVersion || intake !== intakeVersion || disposed) return;
     state.loading = true;
+    autoplayOnLoad = false;
     element.pause();
+    element.removeAttribute("src");
+    element.load();
     state.currentId = id;
     state.time = 0;
     state.duration = 0;
     state.paused = true;
     resumeTime = 0;
-    resumeTime = await library.position(binding);
-    if (version !== loadVersion || disposed) return;
+    const savedPosition = await library.position(binding);
+    if (version !== loadVersion || intake !== intakeVersion || disposed) return;
+    resumeTime = savedPosition;
+    const entry = opened.get(id);
+    if (entry) await remember([entry]);
+    if (version !== loadVersion || intake !== intakeVersion || disposed) return;
+    autoplayOnLoad = autoplay;
     element.src = url;
     element.load();
     emit();
@@ -92,31 +112,65 @@ export async function createBrowserPlayer(element: HTMLVideoElement, publish: (s
   document.addEventListener("visibilitychange", visibilityChanged);
   emit();
 
-  return {
-    async addFiles(files: File[]) {
-      let firstId: string | undefined;
-      let invalidName: string | undefined;
-      for (const file of files) {
-        const kind = mediaKind(file.name);
-        if (!kind) { invalidName ??= file.name; continue; }
-        const binding = await library.openMedia({ name: file.name, size: file.size, lastModified: file.lastModified }, kind, generation);
-        if (disposed) return;
-        if (binding.generation !== generation) throw new DataError("changed");
-        const id = binding.mediaId;
-        bindings.set(id, binding);
-        if (!sources.has(id)) {
-          sources.set(id, URL.createObjectURL(file));
-          state.items.push({ id, name: file.name, kind });
-        }
-        firstId ??= id;
+  async function addFiles(files: BrowserMediaFile[], autoplay = true, version = ++intakeVersion) {
+    let firstId: string | undefined;
+    let invalidName: string | undefined;
+    const entries: BrowserRecent[] = [];
+    for (const { file, handle } of files) {
+      const kind = mediaKind(file.name);
+      if (!kind) { invalidName ??= file.name; continue; }
+      const binding = await library.openMedia({ name: file.name, size: file.size, lastModified: file.lastModified }, kind, generation);
+      if (disposed || version !== intakeVersion) return;
+      if (binding.generation !== generation) throw new DataError("changed");
+      const id = binding.mediaId;
+      bindings.set(id, binding);
+      const entry = { id, file: { name: file.name, size: file.size, lastModified: file.lastModified }, kind, ...(handle ? { handle } : {}) };
+      opened.set(id, entry);
+      entries.push(entry);
+      if (!sources.has(id)) {
+        sources.set(id, URL.createObjectURL(file));
+        state.items.push({ id, name: file.name, kind });
       }
-      if (firstId) await select(firstId);
-      if (invalidName) state.error = { code: "format", name: invalidName };
-      emit();
-    },
+      firstId ??= id;
+    }
+    if (disposed || version !== intakeVersion) return;
+    if (entries.length) await remember(entries);
+    if (disposed || version !== intakeVersion) return;
+    if (firstId) await select(firstId, autoplay);
+    if (invalidName) state.error = { code: "format", name: invalidName };
+    emit();
+  }
+  async function openRecent(id: string, automatic = false) {
+    const entry = recent.find(item => item.id === id);
+    if (!entry || disposed) return;
+    const version = ++intakeVersion;
+    if (sources.has(id)) { await select(id, !automatic); return; }
+    try {
+      const handle = entry.handle;
+      // Request permission directly from the click, before any storage reads.
+      const permission = handle ? await (automatic ? handle.queryPermission({ mode: "read" }) : handle.requestPermission({ mode: "read" })) : "denied";
+      if (disposed || version !== intakeVersion) return;
+      if (!handle || permission !== "granted") { state.error = { code: "recent-access", name: entry.file.name }; emit(); return; }
+      const file = await handle.getFile();
+      if (disposed || version !== intakeVersion) return;
+      if (file.name !== entry.file.name || file.size !== entry.file.size || file.lastModified !== entry.file.lastModified) {
+        state.error = { code: "changed-file", name: entry.file.name }; emit(); return;
+      }
+      await addFiles([{ file, handle }], !automatic, version);
+    } catch (error) {
+      if (disposed || version !== intakeVersion) return;
+      if (error instanceof DataError) throw error;
+      console.error("Cannot reopen browser file", error);
+      state.error = { code: "recent-access", name: entry.file.name }; emit();
+    }
+  }
+  return {
+    addFiles,
+    async restoreLast() { if (recent.length) await openRecent(recent[0].id, true); },
     async command(command: PlaybackCommand) {
       if (!validPlaybackCommand(command)) return;
-      if (command.type === "select") await select(command.id);
+      if (command.type === "recent") await openRecent(command.id);
+      if (command.type === "select") { intakeVersion++; await select(command.id); }
       if (command.type === "toggle" && state.currentId) {
         state.error = null;
         if (element.paused) await play(); else element.pause();

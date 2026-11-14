@@ -13,6 +13,7 @@ This document tracks implemented source and remaining work. ✅ marks completed 
 - [ ] Verify the first GitHub CI run. Release publication, Pages, and iOS CI remain separate setup work.
 - ✅ Record synchronization, export/import, and backup/restore requirements in `DATA_PLAN.md`. Browser persistence now uses IndexedDB; native storage and remote destinations remain open.
 - ✅ Add the shared record model, JSON archive v1, browser migration, export/import preview, conflict preservation, and local recovery. Runtime verification remains pending.
+- ✅ Add a separate 20-file recent list and paused restoration of the last file in browser, desktop, and Android source. Browser restoration uses supported file handles and existing permission; otherwise it asks for access or reselection. Runtime verification remains pending.
 
 ## [ ] Data foundation: synchronization and recovery
 
@@ -86,7 +87,7 @@ Reference: [mpv manual](https://mpv.io/manual/stable/).
 
 - ✅ Add a versioned Android library, plugin registration overlay, and repeatable integration in `prepare:android`.
 - ✅ Keep ExoPlayer, state, and five-second progress checkpoints in MediaSessionService. Reconnect the UI to an active service without reopening its media.
-- ✅ Play audio tracks only and disable video/text tracks. Persist settings and per-file positions in private SharedPreferences, keyed by URI and reported size. The file list remains service-session-only.
+- ✅ Play audio tracks only and disable video/text tracks. Persist settings and per-file positions in private SharedPreferences, keyed by URI and reported size. Recent descriptors survive service termination; the active file list remains service-session-only.
 - ✅ Add media notification preferences for play/pause and time jumps; map previous/next commands to time jumps. Enable audio-focus handling, headphone-disconnect pause, and playback wake lock.
 - [ ] Prepare and build the Android project, then install on a device. Check both a modern Android version and the oldest supported API level available for verification.
 - [ ] Open MP3/M4B and a video with an audio track. Check speed, configured intervals, end-of-file replay, saved position, and no video playback on Android in this stage.
@@ -103,6 +104,8 @@ Reference: [mpv manual](https://mpv.io/manual/stable/).
 - [ ] Seek with buttons and gestures. Define gesture direction, distance, and accidental-touch handling before implementation.
 - [ ] Chapters and navigation by chapter.
 - ✅ Persist position per local file and restore it on reopening. Browser identity uses name, size, and modification time; desktop identity uses canonical path, size, and modification time. Completed items restart at zero. Runtime verification remains pending.
+- ✅ Keep the 20 most recent files, deduplicated and ordered by reopening, independently of the active session list. Automatically reopen the last file paused when access is available. Preserve missing/inaccessible entries for recovery; newer explicit opening must win over pending startup restoration.
+- [ ] Verify restart and recent-file selection on each platform: saved position, no startup sound, incoming-file priority, changed/deleted files, revoked access, temporary Android grants, browser picker/drop handles, and browser fallback without handles. Verify browser import/restore still leaves playback stopped.
 - [ ] Queue and local playlists. Define the relationship between queue order and chapter navigation.
 - [ ] Audio-only and video playback modes.
 - [ ] Keep watched/listened history. Decide how completion and partial listening are recorded.

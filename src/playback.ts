@@ -8,9 +8,10 @@ export function mediaKind(name: string): "audio" | "video" | null {
 }
 
 export type MediaItem = { id: string; name: string; kind: "audio" | "video"; temporary?: boolean };
-export type PlaybackError = { code: "format" | "open" | "play" | "storage" | "missing-player" | "player" | "access" | "android-player" | "library-changed"; name?: string };
+export type PlaybackError = { code: "format" | "open" | "play" | "storage" | "missing-player" | "player" | "access" | "android-player" | "library-changed" | "recent-access" | "changed-file"; name?: string };
 export type PlaybackState = {
   items: MediaItem[];
+  recent: MediaItem[];
   currentId: string | null;
   time: number;
   duration: number;
@@ -21,15 +22,15 @@ export type PlaybackState = {
   forward: number;
   error: PlaybackError | null;
 };
-export type PlaybackCommand = { type: "select"; id: string } | { type: "toggle" } | { type: "seek"; time: number } | { type: "speed"; value: number } | { type: "intervals"; backward: number; forward: number };
+export type PlaybackCommand = { type: "select" | "recent"; id: string } | { type: "toggle" } | { type: "seek"; time: number } | { type: "speed"; value: number } | { type: "intervals"; backward: number; forward: number };
 
 export function initialPlaybackState(): PlaybackState {
-  return { items: [], currentId: null, time: 0, duration: 0, paused: true, loading: false, speed: 1, backward: 15, forward: 30, error: null };
+  return { items: [], recent: [], currentId: null, time: 0, duration: 0, paused: true, loading: false, speed: 1, backward: 15, forward: 30, error: null };
 }
 
 export function validPlaybackCommand(command: PlaybackCommand): boolean {
   if (!command || typeof command !== "object") return false;
-  if (command.type === "select") return typeof command.id === "string";
+  if (command.type === "select" || command.type === "recent") return typeof command.id === "string";
   if (command.type === "toggle") return true;
   if (command.type === "seek") return Number.isFinite(command.time) && command.time >= 0;
   if (command.type === "speed") return Number.isFinite(command.value) && command.value >= 0.25 && command.value <= 3;

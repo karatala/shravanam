@@ -50,4 +50,6 @@ The adapter migrates valid `shravanam.position.*` and `shravanam.playback.settin
 
 File bindings are local and are not exported. On reopening a file without a valid binding, the browser can reuse exactly one media record with matching filename, size, and modification time. This is a metadata match, not content verification. If several distinct records match, a new record is created rather than silently merging them. Renamed or changed files need future explicit relinking support. Reopening an already bound file uses its existing logical media ID.
 
+The local metadata store also keeps up to 20 recent files and optional read-only File System Access handles. Neither handles nor this device-local order are exported or included in recovery snapshots. Recent entries whose media records no longer match the active library are hidden. Startup restores the last file paused only when its handle remains readable and its metadata matches. A click can request read permission again; unsupported browsers and ordinary file-input selections require reselection. Media bytes are never copied into IndexedDB by this feature.
+
 Native adapters, per-device synchronization revisions, deletion markers, explicit conflict editing, media attachments, encryption, selected-item export, and cloud destinations are not part of v1's current implementation.

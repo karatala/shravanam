@@ -7,7 +7,7 @@
 ## Ownership
 
 - `main.js` owns the fixed local server, OS data directory, native window, file dialog, OS drops, and single-instance delivery.
-- `media.js` owns the accepted file list, serialized playback actions, and `playback.json` outside the WebView.
+- `media.js` owns the accepted file list, recent files, serialized playback actions, and `playback.json` outside the WebView.
 - `mpv.js` owns the separate player process, private IPC, and application-owned mpv configuration.
 
 ## Local Contracts
@@ -17,6 +17,7 @@
 - The local file-forwarding endpoint requires the token from the user's private `open-session.json` and rejects browser Origin headers. Retain batches received before the player is ready.
 - Canonicalize and validate native incoming files before registering them. Use the same intake for launch arguments, native file drops, and the file dialog. Add files in order and start the first accepted item.
 - Keep positions and settings in `Shravanam/playback.json`. Persist every five seconds, on controls and file changes, and before graceful exit. Key native positions by canonical path, size, and modification time.
+- Save 20 recent files with canonical paths in the private profile. Expose names and IDs, never paths, through playback snapshots. Revalidate files before reopening. On startup, restore only the last file and leave mpv paused; incoming launch/drop/Open With requests take priority. Missing or changed files remain in recents with an actionable error.
 - Find mpv beside the executable, in macOS Resources, on PATH, or at standard Homebrew paths. Do not download it automatically. Bundling remains separate work.
 - Create `mpv/mpv.conf` and `mpv/input.conf` only when missing. Default to RAM caching with 128 MiB forward and 32 MiB backward limits; no media disk cache. Input bindings apply to the mpv video window, not global hotkeys.
 - Closing the app currently stops mpv after saving. Tray mode and WebView disposal without stopping playback remain future work. Video uses mpv's separate native window.

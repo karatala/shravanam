@@ -76,7 +76,7 @@ Default section order:
 
 ## User Preferences
 
-- The agent may commit completed requested work without another confirmation. Do not push changes. Keep unrelated local edits out of commits unless the user explicitly includes them.
+- Commit completed requested work without another confirmation. Do not push changes. Keep unrelated local edits out of commits unless the user explicitly includes them.
 
 - Prioritize working application changes over extended diagnostic studies. Run the checks needed for the implementation; expand measurement work only to resolve a concrete blocker.
 

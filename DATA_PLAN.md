@@ -17,6 +17,7 @@ This plan separates implemented source from remaining design and verification. T
 - [ ] Link online and offline copies to the same logical item using source identifiers and verified file metadata/content identity. Do not merge books only because their titles match.
 - ✅ Model original and edited text separately, with target, role, language, and timed cues. Preserve conflicting record variants on archive merge. Source refresh and text editing remain separate features.
 - ✅ Migrate valid browser positions/settings from localStorage in one transaction and retain the originals. Report invalid legacy entries excluded from migration/export.
+- ✅ Keep a 20-file device-local recent list with native paths/content URIs or optional browser handles. Use it to restore the last accessible file paused. Access references and device-local order stay outside portable archives; native shared-library adapters remain pending.
 - [ ] Migrate desktop `playback.json` and Android SharedPreferences through native adapters without clearing originals. Preserve local bindings and native background progress ownership.
 - [ ] Let the native playback owner persist progress while the WebView is absent. Define a consistent snapshot boundary shared by playback, synchronization, export, and backup.
 - [ ] Separate primary records and attachments from rebuildable search indexes, caches, logs, and downloaded-media caches.

@@ -70,4 +70,15 @@ final class MediaFile {
     JSObject snapshot() {
         return new JSObject().put("id", this.id).put("name", this.name).put("kind", this.kind).put("temporary", this.temporary);
     }
+
+    JSObject stored() { return this.snapshot().put("uri", this.uri.toString()); }
+
+    static MediaFile fromStored(JSONObject value) throws Exception {
+        String id = value.getString("id");
+        Uri uri = Uri.parse(value.getString("uri"));
+        String name = value.getString("name");
+        String kind = value.getString("kind");
+        if (!id.matches("[a-f0-9]{64}") || !"content".equals(uri.getScheme()) || name.isEmpty() || !("audio".equals(kind) || "video".equals(kind))) throw new IOException("Invalid recent media");
+        return new MediaFile(id, uri, name, kind, value.getBoolean("temporary"));
+    }
 }
