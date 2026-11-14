@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#000000">
+    <title>Shravanam</title>
+    <link rel="manifest" href="./manifest.webmanifest">
+    <link rel="icon" type="image/png" href="./icons/icon-192.png">
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+    <!-- APP_STYLES -->
+    <style>
+      :root { font-family: system-ui, sans-serif; color: #eee; background: #000; color-scheme: dark; font-synthesis: none; }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-width: 280px; }
+      button, textarea { font: inherit; }
+      button { border: none; cursor: pointer; color: inherit; }
+      [hidden] { display: none !important; }
+      .page-header { height: calc(44px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left)); display: flex; align-items: center; gap: 12px; background: #161616; }
+      .page-title { flex: 1; font-size: 14px; font-weight: 600; }
+      .window-controls { display: flex; gap: 2px; }
+      .icon-button { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 28px; padding: 0; border-radius: 5px; background: transparent; }
+      .icon-button:active { background: #393939; }
+      .icon-button:hover:where([data-ui-hover="true"] *) { background: #303030; }
+      .icon-button:focus-visible { outline: 2px solid #fec965; outline-offset: 2px; }
+      .icon-button svg { width: 16px; height: 16px; fill: currentColor; }
+      #startup-header { position: fixed; inset: 0 0 auto; z-index: 2; }
+      #startup { position: fixed; inset: 0; display: grid; place-content: center; justify-items: center; gap: 20px; padding: 60px 24px 24px; background: radial-gradient(ellipse at 25% 30%, #242015 0, #0c0d10 45%, #000 80%); background-size: 180% 180%; animation: background-drift 12s ease-in-out infinite alternate; }
+      #startup img { width: 96px; height: 96px; object-fit: contain; animation: icon-glow 3s ease-in-out infinite alternate; }
+      #startup-phase { color: #aaa; font-size: 13px; margin: 0; }
+      #startup-error { width: min(420px, 85vw); height: 100px; resize: none; padding: 12px; border: none; border-radius: 8px; background: #202020; color: #eee; }
+      #startup-actions { display: flex; gap: 12px; }
+      @keyframes background-drift { to { background-position: 100% 100%; } }
+      @keyframes icon-glow { from { filter: drop-shadow(0 0 3px #fec96533); } to { filter: drop-shadow(0 0 14px #fec96588); } }
+      @media (prefers-reduced-motion: reduce) { #startup, #startup img { animation: none; } }
+    </style>
+  </head>
+  <body>
+    <header id="startup-header" class="page-header" data-webview-drag-region="deep" hidden>
+      <span class="page-title">Shravanam</span>
+      <div class="window-controls" data-webview-drag-region="false">
+        <button class="icon-button" type="button" data-window-action="minimizeWindow" data-en="Minimize" data-ru="Свернуть"><svg viewBox="0 0 24 24"><path d="M5 11h14v2H5z"/></svg></button>
+        <button class="icon-button" type="button" data-window-action="toggleMaximized" data-en="Maximize or restore" data-ru="Развернуть или восстановить"><svg viewBox="0 0 24 24"><path d="M5 5h14v14H5zm2 2v10h10V7z"/></svg></button>
+        <button class="icon-button" type="button" data-window-action="requestWindowClose" data-en="Close" data-ru="Закрыть"><svg viewBox="0 0 24 24"><path d="m6 4 6 6 6-6 2 2-6 6 6 6-2 2-6-6-6 6-2-2 6-6-6-6z"/></svg></button>
+      </div>
+    </header>
+    <div id="startup" role="status">
+      <img src="./icons/icon-192.png" alt="">
+      <p id="startup-phase"></p>
+      <textarea id="startup-error" readonly hidden></textarea>
+      <div id="startup-actions" hidden>
+        <button id="copy-error" class="icon-button" type="button" data-en="Copy error" data-ru="Скопировать ошибку"><svg viewBox="0 0 24 24"><path d="M8 2h12v16H8zm2 2v12h8V4zM4 6h2v14h10v2H4z"/></svg></button>
+        <button id="reload-app" class="icon-button" type="button" data-en="Reload" data-ru="Загрузить снова"><svg viewBox="0 0 24 24"><path d="M18 6V2l5 5-5 5V8a6 6 0 1 0 0 8l2 1a8 8 0 1 1-2-11"/></svg></button>
+      </div>
+    </div>
+    <div id="app"></div>
+    <script>
+      const russian = navigator.language.toLowerCase().startsWith("ru");
+      document.documentElement.lang = russian ? "ru" : "en";
+      document.getElementById("startup-phase").textContent = russian ? "Загрузка приложения…" : "Loading application…";
+      document.getElementById("startup-header").hidden = !window.shravanamDesktopHost;
+      for (const button of document.querySelectorAll("button[data-en]")) {
+        const label = russian ? button.dataset.ru : button.dataset.en;
+        button.setAttribute("aria-label", label);
+        button.title = label;
+        button.addEventListener("pointerup", () => requestAnimationFrame(() => button.blur()));
+      }
+      for (const button of document.querySelectorAll("[data-window-action]")) button.onclick = () => window.shravanamDesktop?.[button.dataset.windowAction]();
+      document.getElementById("reload-app").onclick = () => location.reload();
+      document.getElementById("copy-error").onclick = async () => {
+        const field = document.getElementById("startup-error");
+        try { await navigator.clipboard.writeText(field.value); }
+        catch { field.focus(); field.select(); }
+      };
+      window.shravanamOfflineEnabled = __OFFLINE_ENABLED__;
+      window.showStartupError = () => {
+        document.getElementById("startup-phase").hidden = true;
+        const field = document.getElementById("startup-error");
+        field.hidden = false;
+        field.setAttribute("aria-label", russian ? "Ошибка запуска" : "Startup error");
+        field.value = russian ? "Не удалось открыть Shravanam. Загрузите приложение снова. Если ошибка повторяется, подключитесь к сети и повторите попытку." : "Cannot open Shravanam. Reload the app. If it still fails, connect to the internet and try again.";
+        document.getElementById("startup-actions").hidden = false;
+      };
+    </script>
+    <script type="module">
+      import("__APP_ENTRY__").catch(error => { console.error(error); window.showStartupError(); });
+    </script>
+  </body>
+</html>

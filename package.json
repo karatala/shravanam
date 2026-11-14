@@ -1,0 +1,30 @@
+{
+  "name": "shravanam",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun scripts/serve.js",
+    "build": "bun scripts/build-web.js",
+    "preview": "bun scripts/serve.js --preview",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "desktop": "bun desktop/main.js",
+    "build:desktop": "bun run build && bun scripts/build-desktop.js",
+    "prepare:android": "bun run build && bun scripts/prepare-mobile.js android",
+    "prepare:ios": "bun run build && bun scripts/prepare-mobile.js ios",
+    "open:android": "bunx --no-install cap open android",
+    "open:ios": "bunx --no-install cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/core": "8.6.0",
+    "svelte": "5.57.1"
+  },
+  "devDependencies": {
+    "@capacitor/android": "8.6.0",
+    "@capacitor/cli": "8.6.0",
+    "@capacitor/ios": "8.6.0",
+    "@webviewjs/webview": "0.6.0",
+    "svelte-check": "4.7.6",
+    "typescript": "6.0.3"
+  }
+}

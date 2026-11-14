@@ -1,0 +1,76 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Dev",
+      "type": "process",
+      "command": "bun",
+      "args": ["run", "dev"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
+      "label": "Check",
+      "type": "process",
+      "command": "bun",
+      "args": ["run", "check"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Build",
+      "type": "process",
+      "command": "bun",
+      "args": ["run", "build"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "Preview",
+      "type": "process",
+      "command": "bun",
+      "args": ["run", "preview"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "dependsOn": "Build",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
+      "label": "Run Desktop",
+      "type": "process",
+      "command": "bun",
+      "args": ["run", "desktop"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "dependsOn": "Build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Build Desktop",
+      "type": "process",
+      "command": "bun",
+      "args": ["run", "build:desktop"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "group": "build"
+    },
+    {
+      "label": "Prepare Android",
+      "type": "process",
+      "command": "bun",
+      "args": ["run", "prepare:android"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "group": "build"
+    },
+    {
+      "label": "Open Android",
+      "type": "process",
+      "command": "bun",
+      "args": ["run", "open:android"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    }
+  ]
+}
