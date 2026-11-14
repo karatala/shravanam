@@ -14,22 +14,25 @@ export async function createMediaPlayer(profile) {
   let positions = {};
   let recent = [];
   let openedExplicitly = false;
+  let audioOnly = true;
   try {
     const settings = JSON.parse(await readFile(settingsPath, "utf8"));
     if (!validPlaybackCommand({ type: "speed", value: settings.speed }) || !validPlaybackCommand({ type: "intervals", backward: settings.backward, forward: settings.forward })) throw new Error("Invalid playback settings");
     state.speed = settings.speed;
     state.backward = settings.backward;
     state.forward = settings.forward;
+    if (typeof settings.audioOnly === "boolean") audioOnly = settings.audioOnly;
     if (settings.positions && typeof settings.positions === "object" && !Array.isArray(settings.positions)) positions = Object.fromEntries(Object.entries(settings.positions).filter(([id, time]) => /^[a-f0-9]{64}$/.test(id) && Number.isFinite(time) && time >= 0));
     if (Array.isArray(settings.recent)) recent = settings.recent.filter(entry => entry && /^[a-f0-9]{64}$/.test(entry.id) && typeof entry.path === "string" && isAbsolute(entry.path) && !entry.path.includes("\0") && typeof entry.name === "string" && mediaKind(entry.name) === entry.kind).slice(0, 20);
   } catch (error) { if (error.code !== "ENOENT") { console.error(error); state.error = { code: "storage" }; } }
   const player = new MpvPlayer(profile, code => { if (code) state.error = { code, name: state.items.find(item => item.id === currentId)?.name }; });
   player.state.speed = state.speed;
-  const snapshot = () => ({ ...state, ...(currentId ? player.state : {}), currentId, items: [...state.items], recent: recent.map(({ id, name, kind }) => ({ id, name, kind })) });
+  player.audioOnly = audioOnly;
+  const snapshot = () => ({ ...state, ...(currentId ? player.state : {}), currentId, audioOnly: player.audioOnly, backend: player.backend, items: [...state.items], recent: recent.map(({ id, name, kind }) => ({ id, name, kind })) });
   function queue(action) {
     const next = serial.then(async () => { if (!closing) await action(); }).catch(error => {
       console.error("Desktop media action failed", error);
-      state.error = { code: ["missing-player", "open", "changed-file"].includes(error.code) ? error.code : "player", name: error.mediaName ?? state.items.find(item => item.id === currentId)?.name };
+      state.error = { code: ["missing-player", "iina-player", "open", "changed-file"].includes(error.code) ? error.code : "player", name: error.mediaName ?? state.items.find(item => item.id === currentId)?.name };
     });
     serial = next;
     return next.then(snapshot);
@@ -79,7 +82,7 @@ export async function createMediaPlayer(profile) {
     if (currentId && player.loaded && !player.state.loading) positions[currentId] = player.state.duration > 0 && player.state.time >= player.state.duration ? 0 : player.state.time;
     const temporary = `${settingsPath}.pending`;
     try {
-      await writeFile(temporary, JSON.stringify({ speed: state.speed, backward: state.backward, forward: state.forward, positions, recent }), { mode: 0o600 });
+      await writeFile(temporary, JSON.stringify({ speed: state.speed, backward: state.backward, forward: state.forward, audioOnly: player.audioOnly, positions, recent }), { mode: 0o600 });
       await rename(temporary, settingsPath);
     } catch (error) { console.error(error); state.error = { code: "storage" }; }
   }
@@ -147,6 +150,7 @@ export async function createMediaPlayer(profile) {
           await saveSettings();
         }
         if (command.type === "intervals") { state.backward = command.backward; state.forward = command.forward; await saveSettings(); }
+        if (command.type === "audio-only") { await player.setAudioOnly(command.value); await saveSettings(); }
       });
     },
     async close() {

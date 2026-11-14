@@ -8,7 +8,7 @@ export function mediaKind(name: string): "audio" | "video" | null {
 }
 
 export type MediaItem = { id: string; name: string; kind: "audio" | "video"; temporary?: boolean };
-export type PlaybackError = { code: "format" | "open" | "play" | "storage" | "missing-player" | "player" | "access" | "android-player" | "library-changed" | "recent-access" | "changed-file" | "host" | "picker" | "native-drop"; name?: string };
+export type PlaybackError = { code: "format" | "open" | "play" | "storage" | "missing-player" | "iina-player" | "player" | "access" | "android-player" | "library-changed" | "recent-access" | "changed-file" | "host" | "picker" | "native-drop"; name?: string };
 export type PlaybackState = {
   items: MediaItem[];
   recent: MediaItem[];
@@ -20,9 +20,11 @@ export type PlaybackState = {
   speed: number;
   backward: number;
   forward: number;
+  audioOnly?: boolean;
+  backend?: "mpv" | "iina" | null;
   error: PlaybackError | null;
 };
-export type PlaybackCommand = { type: "select" | "recent"; id: string } | { type: "toggle" } | { type: "seek"; time: number } | { type: "speed"; value: number } | { type: "intervals"; backward: number; forward: number };
+export type PlaybackCommand = { type: "select" | "recent"; id: string } | { type: "toggle" } | { type: "seek"; time: number } | { type: "speed"; value: number } | { type: "intervals"; backward: number; forward: number } | { type: "audio-only"; value: boolean };
 
 export function initialPlaybackState(): PlaybackState {
   return { items: [], recent: [], currentId: null, time: 0, duration: 0, paused: true, loading: false, speed: 1, backward: 15, forward: 30, error: null };
@@ -32,6 +34,7 @@ export function validPlaybackCommand(command: PlaybackCommand): boolean {
   if (!command || typeof command !== "object") return false;
   if (command.type === "select" || command.type === "recent") return typeof command.id === "string";
   if (command.type === "toggle") return true;
+  if (command.type === "audio-only") return typeof command.value === "boolean";
   if (command.type === "seek") return Number.isFinite(command.time) && command.time >= 0;
   if (command.type === "speed") return Number.isFinite(command.value) && command.value >= 0.25 && command.value <= 3;
   if (command.type === "intervals") return [command.backward, command.forward].every(value => Number.isInteger(value) && value >= 1 && value <= 600);

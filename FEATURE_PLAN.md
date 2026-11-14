@@ -77,8 +77,12 @@ Verification: check a selected-site link before enable, after enable, after rest
 
 mpv is the first desktop playback engine, running as a separate process controlled through private JSON IPC. The source finds an installed or adjacent binary; packaging does not yet bundle it. WebView disposal while retaining playback remains a later stage.
 
+- ✅ Add an installed-IINA fallback on macOS when standalone mpv is absent. Start a separate process with private IPC, silent initialization, and process-local preference overrides. Keep progress in Shravanam and close only its own process.
+- ✅ Add desktop Listen/Watch selection, saved with playback settings. Listen disables video. IINA uses RAM cache limits of 32/8 MiB forward/backward for Listen and 128/32 MiB for Watch, with safe hardware decoding requested for video.
+- [ ] Verify IINA 1.3.5 startup, play/pause, speed, seeking, Listen/Watch, file changes, end-of-file replay, paused startup restoration, and shutdown while another IINA process is open. Measure CPU and memory before deciding whether to add a separate audio engine. Tauri migration is not selected.
+
 - ✅ Add application-owned `--config-dir`, `mpv.conf`, and editable `input.conf`, created only when absent. Bindings cover the mpv video window; global shortcuts remain future work.
-- ✅ Default buffering to `cache=yes`, `cache-on-disk=no`, 128 MiB forward and 32 MiB backward, configurable in `mpv.conf`. This controls media buffering, not OS swap or settings writes. Online source input is not implemented yet.
+- ✅ Default standalone mpv buffering to `cache=yes`, `cache-on-disk=no`, 128 MiB forward and 32 MiB backward, configurable in `mpv.conf`. IINA uses the mode-specific properties above. This controls media buffering, not OS swap or settings writes. Online source input is not implemented yet.
 - [ ] Bundle mpv and its dependent libraries with the required licenses for each supported desktop architecture.
 - [ ] Evaluate site-link resolution through mpv's yt-dlp integration separately from direct-stream playback.
 - [ ] Check distribution size, licenses, supported desktop architectures, video-window behavior, IPC access, and state recovery before adopting it.

@@ -35,7 +35,7 @@ async function shutdown() {
 for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => { void shutdown(); });
 process.once("exit", () => host?.terminate());
 console.log(`Shravanam: ${server.url}`);
-console.log(nativePlayback ? "Bun + mpv playback. Browser reload keeps audio running. Stop this terminal to stop the player." : "Web/PWA playback. Files and permissions are managed by the browser.");
+console.log(nativePlayback ? "Bun controls mpv or installed IINA on macOS. Browser reload keeps audio running. Stop this terminal to stop the player." : "Web/PWA playback. Files and permissions are managed by the browser.");
 if (!preview) {
   let pendingBuild = Promise.resolve();
   let rebuildTimer;

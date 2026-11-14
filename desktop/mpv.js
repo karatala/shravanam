@@ -3,7 +3,7 @@ import { createConnection } from "node:net";
 import { access, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { dirname, join } from "node:path";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
 
 export class MpvPlayer {
@@ -19,6 +19,8 @@ export class MpvPlayer {
     this.closed = false;
     this.loaded = false;
     this.waitForLoad = null;
+    this.backend = null;
+    this.audioOnly = true;
   }
 
   async start() {
@@ -33,13 +35,21 @@ export class MpvPlayer {
     if (this.closed) throw new Error("Player is closed");
     const binaryName = process.platform === "win32" ? "mpv.exe" : "mpv";
     const candidates = [join(dirname(process.execPath), "mpv", binaryName), join(dirname(process.execPath), "..", "Resources", "mpv", "bin", binaryName), Bun.which(binaryName)];
-    if (process.platform === "darwin") candidates.push("/opt/homebrew/bin/mpv", "/usr/local/bin/mpv");
+    if (process.platform === "darwin") candidates.push("/opt/homebrew/bin/mpv", "/usr/local/bin/mpv", "/Applications/mpv.app/Contents/MacOS/mpv", join(homedir(), "Applications/mpv.app/Contents/MacOS/mpv"));
     let executable;
     for (const candidate of candidates.filter(Boolean)) {
       try { await access(candidate, constants.X_OK); executable = candidate; break; }
       catch { /* Try the next supported installation location. */ }
     }
-    if (!executable) throw Object.assign(new Error("mpv was not found"), { code: "missing-player" });
+    this.backend = "mpv";
+    if (!executable && process.platform === "darwin") {
+      for (const application of ["/Applications/IINA.app", join(homedir(), "Applications/IINA.app")]) {
+        const candidate = join(application, "Contents/MacOS/IINA");
+        try { await access(candidate, constants.X_OK); executable = candidate; this.backend = "iina"; break; }
+        catch { /* Try the next IINA installation location. */ }
+      }
+    }
+    if (!executable) { this.backend = null; throw Object.assign(new Error("No supported player was found"), { code: "missing-player" }); }
     const configDirectory = join(this.profile, "mpv");
     await mkdir(configDirectory, { recursive: true });
     const defaults = {
@@ -51,14 +61,34 @@ export class MpvPlayer {
       catch (error) { if (error.code !== "EEXIST") throw error; }
     }
     const socketPath = process.platform === "win32" ? `\\\\.\\pipe\\shravanam-${process.pid}-${randomBytes(12).toString("hex")}` : join(await mkdtemp(join(tmpdir(), "shravanam-mpv-")), "ipc");
-    const child = spawn(executable, [`--config-dir=${configDirectory}`, `--input-ipc-server=${socketPath}`, "--idle=yes", "--keep-open=yes", "--terminal=no", "--input-terminal=no", "--force-window=no", "--resume-playback=no", "--save-position-on-quit=no"], { stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
+    let args = [`--config-dir=${configDirectory}`, `--input-ipc-server=${socketPath}`, "--idle=yes", "--keep-open=yes", "--terminal=no", "--input-terminal=no", "--force-window=no", "--resume-playback=no", "--save-position-on-quit=no", "--pause=yes", "--vid=no"];
+    if (this.backend === "iina") {
+      // IINA applies command-line mpv properties only when it opens an input.
+      // Bootstrap with silence, never the user's file, until IPC is connected.
+      const silence = Buffer.alloc(16044);
+      silence.write("RIFF", 0); silence.writeUInt32LE(silence.length - 8, 4); silence.write("WAVEfmt ", 8);
+      silence.writeUInt32LE(16, 16); silence.writeUInt16LE(1, 20); silence.writeUInt16LE(1, 22);
+      silence.writeUInt32LE(8000, 24); silence.writeUInt32LE(16000, 28); silence.writeUInt16LE(2, 32); silence.writeUInt16LE(16, 34);
+      silence.write("data", 36); silence.writeUInt32LE(silence.length - 44, 40);
+      const bootstrap = join(this.profile, "iina-bootstrap.wav");
+      await writeFile(bootstrap, silence, { mode: 0o600 });
+      // Spawn the application binary directly, as iina-cli does, to own its PID.
+      // Single-dash arguments override preferences for this process only.
+      args = [
+        "-recordPlaybackHistory", "NO", "-recordRecentFiles", "NO", "-resumeLastPosition", "NO", "-enableThumbnailPreview", "NO", "-enableAdvancedSettings", "NO",
+        "-playlistAutoPlayNext", "NO", "-pauseWhenInactive", "NO", "-pauseWhenMinimized", "NO", "-quitWhenNoOpenedWindow", "NO", "-NSQuitAlwaysKeepsWindows", "NO",
+        `--mpv-input-ipc-server=${socketPath}`, "--mpv-idle=yes", "--mpv-keep-open=yes", "--mpv-pause=yes", "--mpv-mute=yes", "--mpv-vid=no",
+        "--mpv-resume-playback=no", "--mpv-save-position-on-quit=no", bootstrap,
+      ];
+    }
+    const child = spawn(executable, args, { stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
     this.process = child;
     let startupError;
     child.stderr.on("data", chunk => console.error(`[mpv] ${chunk.toString().trim()}`));
     child.on("error", error => { startupError = error; if (this.process === child) this.disconnected(error); });
     child.on("exit", () => { if (this.process === child) this.disconnected(new Error("mpv exited")); });
     try {
-      for (let attempt = 0; attempt < 100; attempt++) {
+      for (let attempt = 0; attempt < (this.backend === "iina" ? 300 : 100); attempt++) {
         if (startupError) throw startupError;
         if (child.exitCode !== null || child.signalCode !== null) throw new Error("mpv stopped during startup");
         try {
@@ -88,9 +118,11 @@ export class MpvPlayer {
       socket.on("error", error => { if (this.socket === socket) this.disconnected(error); });
       socket.on("close", () => { if (this.socket === socket) this.disconnected(new Error("mpv connection closed")); });
       for (const [idx, name] of ["time-pos", "duration", "pause", "speed", "eof-reached"].entries()) await this.request(["observe_property", idx + 1, name]);
+      await this.setAudioOnly(this.audioOnly);
     } catch (error) {
       child.kill();
       this.socket?.destroy();
+      if (this.backend === "iina") error.code = "iina-player";
       throw error;
     }
   }
@@ -151,6 +183,20 @@ export class MpvPlayer {
     });
   }
 
+  async setAudioOnly(audioOnly) {
+    if (this.socket && !this.socket.destroyed) {
+      if (this.backend === "iina") {
+        await this.request(["set_property", "cache", "yes"]);
+        await this.request(["set_property", "cache-on-disk", false]);
+        await this.request(["set_property", "demuxer-max-bytes", (audioOnly ? 32 : 128) * 1024 * 1024]);
+        await this.request(["set_property", "demuxer-max-back-bytes", (audioOnly ? 8 : 32) * 1024 * 1024]);
+        await this.request(["set_property", "hwdec", "auto-safe"]);
+      }
+      await this.request(["set_property", "vid", audioOnly ? "no" : "auto"]);
+    }
+    this.audioOnly = audioOnly;
+  }
+
   async load(path, speed, position = 0, autoplay = true) {
     await this.start();
     this.state = { time: 0, duration: 0, paused: true, loading: true, speed };
@@ -160,6 +206,7 @@ export class MpvPlayer {
     void loaded.catch(() => {});
     const timer = setTimeout(() => this.waitForLoad?.reject(new Error("Media loading timed out")), 15000);
     try {
+      if (this.backend === "iina") await this.request(["set_property", "mute", true]);
       await this.request(["set_property", "pause", true]);
       await this.request(["loadfile", path, "replace"]);
       await loaded;
@@ -168,6 +215,7 @@ export class MpvPlayer {
       if (position > 0 && position < this.state.duration) { await this.request(["seek", position, "absolute+exact"]); this.state.time = position; }
       await this.request(["set_property", "speed", speed]);
       await this.request(["set_property", "pause", !autoplay]);
+      if (this.backend === "iina") await this.request(["set_property", "mute", false]);
       this.state.speed = speed;
       this.state.paused = !autoplay;
     } finally {

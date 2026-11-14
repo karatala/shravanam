@@ -8,7 +8,7 @@ The current source contains a Svelte interface, Bun build and local server, a pr
 
 - Bun, with the same runtime used for Rachana.
 - Native desktop prerequisites from `@webviewjs/webview` on the target system.
-- mpv installed on PATH for desktop playback and default `bun run dev`. Standard Homebrew paths are also checked on macOS. Desktop packaging does not yet bundle mpv or its libraries.
+- mpv installed on PATH for desktop playback and default `bun run dev`. On macOS, standard Homebrew paths and mpv.app in system/user Applications are also checked. If mpv is absent, Shravanam uses IINA.app from system/user Applications. Desktop packaging does not yet bundle a player or its libraries.
 - The development system file dialog uses macOS `osascript`, Windows PowerShell/Windows Forms, or Linux `zenity` with `kdialog` as a fallback. Native desktop keeps its WebviewJS file dialog.
 - Xcode Command Line Tools for the macOS document-opening launcher.
 - Android Studio and its SDK for Android; macOS and Xcode for iOS.
@@ -48,6 +48,12 @@ Positions save every five seconds and on pause, seeking, file changes, and grace
 **Recent files** remembers up to 20 files separately from the current session list. Startup reopens the last file at its saved position, paused. Explicit Open With or launch files take priority. Missing, changed, or inaccessible files show an error with a way to reopen them. The browser stores file handles when its picker/drop API supports them; automatic reopening requires an existing read grant. Click the recent entry to renew permission, or use **Open files** when a handle is unavailable. Ordinary file-input selection retains metadata only. This feature does not copy media into browser storage. Recent paths, URIs, handles, and their local order are not part of portable data archives.
 
 Desktop progress and settings live in `Shravanam/playback.json`, outside the WebView. The first mpv launch creates `Shravanam/mpv/mpv.conf` and `input.conf` if absent. Edit them while the app is closed. Defaults are `cache=yes`, `cache-on-disk=no`, `demuxer-max-bytes=128MiB`, and `demuxer-max-back-bytes=32MiB`. These settings control media buffering, not OS swap or progress writes. mpv video appears in its own native window; its `input.conf` shortcuts are not global. Closing Shravanam currently stops playback.
+
+Desktop starts in **Listen** mode: video tracks are disabled, including for local video files. Choose **Watch** to enable video in the separate player window. The mode is saved with playback settings. The interface shows whether mpv or IINA is active.
+
+With IINA, Shravanam starts and owns a separate application process. It does not send commands to an existing IINA window. It starts with a generated silent WAV while connecting, then loads the selected file with sound muted until the saved position and pause state are applied. IINA preferences are overridden for this process through launch arguments, not edited on disk. IINA does not use Shravanam's standalone mpv configuration files. Its media cache stays in RAM: Listen uses 32 MiB forward and 8 MiB backward; Watch uses 128 MiB forward and 32 MiB backward. Video requests safe hardware decoding. These are cache limits, not total memory limits. IINA may show its own window while controlled by Shravanam.
+
+For the first IINA check, restart `bun run dev`, open a local MP3 or M4B, and check play/pause, speed, seeking, browser reload, and paused restoration after a terminal restart. Open a local video and switch Listen/Watch. Keep a separate IINA window open to check that closing Shravanam affects only its own player process. This integration still needs runtime verification with IINA 1.3.5. YouTube and other site-link input remain pending.
 
 ## Desktop file associations
 
@@ -93,7 +99,7 @@ Default browser debugging controls actual mpv playback through Bun. Native windo
 
 `.github/workflows/build.yml` follows Rachana's build pattern for the current delivery targets. It runs on pull requests, tag pushes, and manual dispatch. Ordinary branch pushes do not trigger it. Once the workflow is on the default branch, use **Actions → Cross-platform build → Run workflow** for a manual run.
 
-The web job runs `bun run check` and builds the PWA. Native jobs build Windows x64, Linux x64, macOS arm64/x64, and an Android debug APK. Android preparation includes the native player overlay before Gradle builds it. Download successful outputs from the run's **Artifacts** section; retention is 14 days. Desktop packages still need an installed mpv, and Android debug artifacts use the runner's generated debug key, not a stable distribution key.
+The web job runs `bun run check` and builds the PWA. Native jobs build Windows x64, Linux x64, macOS arm64/x64, and an Android debug APK. Android preparation includes the native player overlay before Gradle builds it. Download successful outputs from the run's **Artifacts** section; retention is 14 days. Desktop packages still need installed mpv or, on macOS, IINA. Android debug artifacts use the runner's generated debug key, not a stable distribution key.
 
 CI uses read-only repository access and no custom secrets. The configuration is added locally; a successful GitHub run is still pending. It does not publish a GitHub Release, deploy a PWA, or build iOS. Rachana's release destination and Pages settings are not inherited.
 

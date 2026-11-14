@@ -33,7 +33,8 @@
     if (!failure) return "";
     const name = failure.name ? ` «${failure.name}»` : "";
     if (failure.code === "format") return text(`Cannot open${name}. Choose a supported audio or video file, for example book.mp3 or chapter.m4b.`, `Не удалось открыть${name}. Выберите аудио или видео поддерживаемого формата, например book.mp3 или chapter.m4b.`);
-    if (failure.code === "missing-player") return text("Cannot start playback: mpv was not found. Install mpv and add it to PATH, then open the file again.", "Не удалось начать воспроизведение: mpv не найден. Установите mpv и добавьте его в PATH, затем откройте файл снова.");
+    if (failure.code === "missing-player") return text("Cannot start playback: no supported player was found. On macOS, place IINA.app or mpv.app in Applications. On Windows or Linux, install mpv and add it to PATH. Then open the file again.", "Не удалось начать воспроизведение: подходящий плеер не найден. На macOS поместите IINA.app или mpv.app в папку «Программы». На Windows или Linux установите mpv и добавьте его в PATH. Затем откройте файл снова.");
+    if (failure.code === "iina-player") return text("Cannot connect to the IINA player started by Shravanam. Restart Shravanam and open the file again. If this continues, open IINA from Applications to check that macOS allows it to run.", "Не удалось подключиться к IINA, запущенному из Shravanam. Перезапустите Shravanam и откройте файл снова. Если ошибка осталась, откройте IINA из папки «Программы» и проверьте, что macOS разрешает его запуск.");
     if (failure.code === "host") return text("Cannot connect to the local player. Start or restart bun run dev in the terminal, then reload this page.", "Нет связи с локальным плеером. Запустите или перезапустите bun run dev в терминале и обновите страницу.");
     if (failure.code === "picker") return text("Cannot open the system file dialog. Close any existing dialog and try again. On Linux, install zenity or kdialog if neither is available.", "Не удалось открыть системный диалог выбора файла. Закройте уже открытый диалог и повторите попытку. На Linux установите zenity или kdialog, если их нет.");
     if (failure.code === "native-drop") return text("Use Open files to select this file on the computer. A browser drop does not provide its disk path to the local player. File drops are supported in the desktop app window.", "Выберите этот файл через «Открыть файлы». При перетаскивании браузер не передаёт локальному плееру путь на диске. Перетаскивание доступно в окне desktop-приложения.");
@@ -166,11 +167,18 @@
     {:else if !android}<span>{dragging ? text("Drop files here", "Отпустите файлы здесь") : text("Or drop files from your file manager", "Или перетащите файлы из файлового менеджера")}</span>{/if}
   </div>
   <input bind:this={fileInput} type="file" accept={mediaAccept} multiple hidden onchange={() => { addFiles(Array.from(fileInput.files ?? [], file => ({ file }))); fileInput.value = ""; }} />
+  {#if nativeDesktop && typeof state.audioOnly === "boolean"}
+    <div class="controls playback-mode">
+      <label>{text("Mode", "Режим")}<select disabled={!ready || state.loading} value={state.audioOnly ? "audio" : "video"} onchange={event => command({ type: "audio-only", value: event.currentTarget.value === "audio" })}><option value="audio">{text("Listen", "Слушать")}</option><option value="video">{text("Watch", "Смотреть")}</option></select></label>
+      {#if state.backend}<span class="hint">{text("Player", "Плеер")}: {state.backend === "iina" ? "IINA" : "mpv"}</span>{/if}
+    </div>
+  {/if}
   {#if errorText}<p class="error" role="alert">{errorText}</p>{/if}
   {#if !nativePlayer}<video bind:this={mediaElement} class:audio-only={current?.kind !== "video"} playsinline preload="metadata"><track kind="captions" /></video>{/if}
   {#if current}
     <h2>{current.name}</h2>
     {#if android && current.kind === "video"}<p class="hint">{text("Playing the audio track. Video display is not available on Android yet.", "Воспроизводится звуковая дорожка. Показ видео на Android пока не добавлен.")}</p>{/if}
+    {#if nativeDesktop && current.kind === "video"}<p class="hint">{state.audioOnly ? text("Playing only audio. Select Watch to enable video in the player window.", "Воспроизводится только звук. Выберите «Смотреть», чтобы включить видео в окне плеера.") : text("Video plays in a separate player window.", "Видео воспроизводится в отдельном окне плеера.")}</p>{/if}
     {#if current.temporary}<p class="hint">{text("This file has temporary access. For later playback, select it with Open files to request lasting access.", "Доступ к файлу временный. Для последующего воспроизведения выберите его через «Открыть файлы», чтобы запросить постоянный доступ.")}</p>{/if}
     {#if state.loading}<p role="status">{text("Opening media…", "Открытие файла…")}</p>{/if}
     <label class="timeline">
@@ -213,6 +221,7 @@
   .open-row span, summary, label { font-size: 13px; color: #aaa; }
   .action { padding: 8px 12px; border-radius: 6px; background: #292929; }
   .primary { color: #fec965; }
+  .playback-mode { margin-top: 12px; }
   button:disabled { opacity: 0.5; cursor: default; }
   button:hover:where([data-ui-hover="true"] *):not(:disabled) { background: #383838; }
   button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #fec965; outline-offset: 2px; }
