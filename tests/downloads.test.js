@@ -1,13 +1,27 @@
 import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, symlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { checkedDownloadPath, downloadFormat } from "../desktop/downloads.js";
+import { createHash } from "node:crypto";
+import { checkedDownloadPath, createDownloads, downloadFormat } from "../desktop/downloads.js";
+import { youtubeSource } from "../desktop/youtube.js";
 
 test("download formats are bounded and do not accept page-supplied selectors", () => {
   expect(downloadFormat(true, 720)).toContain("bestaudio");
   expect(downloadFormat(false, 480)).toContain("height<=480");
   expect(() => downloadFormat(false, "bestvideo")).toThrow();
   expect(() => downloadFormat("false", 1080)).toThrow();
+});
+
+test("failed downloads retain their actionable error after host restart", async () => {
+  await mkdir(resolve("tmp"), { recursive: true });
+  const profile = await mkdtemp(join(resolve("tmp"), "download-errors-"));
+  const source = youtubeSource("https://youtu.be/dQw4w9WgXcQ");
+  const id = createHash("sha256").update([source.id, false, 720].join("\0")).digest("hex");
+  const error = "Install ffmpeg and retry. / Установите ffmpeg и повторите попытку.";
+  await writeFile(join(profile, "downloads.json"), JSON.stringify([{ id, url: source.url, name: "Video", audioOnly: false, quality: 720, status: "failed", error }]));
+  const downloads = await createDownloads(profile, {});
+  try { expect(downloads.snapshot()[0]).toMatchObject({ status: "failed", error }); }
+  finally { await downloads.close(); }
 });
 
 test("download paths must resolve to a media file inside the owned directory", async () => {

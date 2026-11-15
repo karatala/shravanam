@@ -45,7 +45,7 @@ export async function createDownloads(profile, media) {
       downloadFormat(entry.audioOnly, entry.quality);
       const id = createHash("sha256").update(`${source.id}\0${entry.audioOnly}\0${entry.quality}`).digest("hex");
       if (entry.id !== id || typeof entry.name !== "string" || entry.name.length > 300 || entry.filename && (isAbsolute(entry.filename) || !entry.filename.startsWith(id + "/") || entry.filename.includes(".."))) throw new Error("Invalid saved download");
-      return { id, url: source.url, name: entry.name, audioOnly: entry.audioOnly, quality: entry.quality, filename: entry.filename, status: entry.status === "ready" ? "ready" : "interrupted", percent: entry.status === "ready" ? 100 : 0 };
+      return { id, url: source.url, name: entry.name, audioOnly: entry.audioOnly, quality: entry.quality, filename: entry.filename, status: entry.status === "ready" ? "ready" : entry.status === "failed" ? "failed" : "interrupted", percent: entry.status === "ready" ? 100 : 0, error: typeof entry.error === "string" && entry.error.length <= 2048 ? entry.error : undefined };
     });
   } catch (error) { if (error.code !== "ENOENT") throw new Error("Cannot read saved downloads. Keep downloads.json for recovery and repair it while Shravanam is closed. / Не удалось прочитать список загрузок. Сохраните downloads.json для восстановления и исправьте его при закрытом Shravanam."); }
   function persist() {
