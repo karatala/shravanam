@@ -27,18 +27,18 @@ export async function buildWeb(development = false) {
     } }],
   });
   if (!result.success) throw new AggregateError(result.logs, "Cannot build Shravanam. Fix the source errors above and run the command again.");
-  const files = result.outputs.filter(output => !output.path.endsWith(".map")).map(output => output.path.slice(outputDirectory.length + 1));
+  const files = result.outputs.filter(output => development || !output.path.endsWith(".map")).map(output => output.path.slice(outputDirectory.length + 1).replaceAll("\\", "/"));
   for await (const filename of new Bun.Glob("**/*").scan({ cwd: "public", onlyFiles: true })) {
     if (filename === "service-worker.js" || filename === "AGENTS.md") continue;
     const destination = resolve(outputDirectory, filename);
     await mkdir(dirname(destination), { recursive: true });
     await copyFile(resolve("public", filename), destination);
-    files.push(filename);
+    files.push(filename.replaceAll("\\", "/"));
   }
   const entry = result.outputs.find(output => output.kind === "entry-point");
   if (!entry) throw new Error("Cannot find the application entry. Check src/main.ts and run the command again.");
-  const styles = result.outputs.filter(output => output.path.endsWith(".css")).map(output => `<link rel="stylesheet" href="./${output.path.slice(outputDirectory.length + 1)}">`).join("");
-  const html = (await readFile("index.html", "utf8")).replace("<!-- APP_STYLES -->", styles).replace("__APP_ENTRY__", `./${entry.path.slice(outputDirectory.length + 1)}`).replace("__OFFLINE_ENABLED__", JSON.stringify(!development));
+  const styles = result.outputs.filter(output => output.path.endsWith(".css")).map(output => `<link rel="stylesheet" href="./${output.path.slice(outputDirectory.length + 1).replaceAll("\\", "/")}">`).join("");
+  const html = (await readFile("index.html", "utf8")).replace("<!-- APP_STYLES -->", styles).replace("__APP_ENTRY__", `./${entry.path.slice(outputDirectory.length + 1).replaceAll("\\", "/")}`).replace("__OFFLINE_ENABLED__", JSON.stringify(!development));
   await writeFile(resolve(outputDirectory, "index.html"), html);
   files.push("index.html");
   if (!development) {

@@ -6,6 +6,8 @@ This document tracks implemented source and remaining work. ✅ marks completed 
 
 - ✅ First delivery targets: desktop and Android. Debug the shared interface in a desktop browser. Keep iOS and installed-PWA delivery for later stages.
 - ✅ Add shared VS Code tasks and a Rachana-style `node-terminal` launch using `bun run dev`. Open a browser manually and use its developer tools with development source maps. Runtime checks remain pending.
+- ✅ Add `Debug Desktop` / `Dev Desktop` using `bun run dev:desktop` for the native window, WebView DevTools, development source maps, and existing tray controls. Normalize built asset names and HTML URLs to forward slashes so Windows native startup can load its icon and other resources. Browser development does not create a tray.
+- [ ] Verify the Windows native development launch: startup icon/tray, DevTools source maps, playback and configured time jumps from the tray, Continue in background, tray Open, and Quit. Close an existing desktop host before F5.
 - ✅ First local-file implementation: shared controls, browser playback, desktop mpv IPC, external file drops, saved positions, and desktop association source. Native checks remain pending.
 - ✅ Add Android native local-audio source: Media3 service, Capacitor bridge, system file intake, saved positions, and media-session controls. Browser iteration accepted by the user; Android build/device checks remain pending.
 - [ ] Design a separate `karatala-ui` library from common needs in several projects. This is deferred and is not part of the player implementation.

@@ -2,6 +2,13 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Debug Desktop",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "bun run dev:desktop",
+      "cwd": "${workspaceFolder}"
+    },
+    {
       "name": "Debug app",
       "type": "node-terminal",
       "request": "launch",

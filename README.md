@@ -24,6 +24,7 @@ Run these commands when you want to install, check, or build the base:
 | `bun install --frozen-lockfile` | Install the locked dependencies |
 | `bun run dev` | Build UI in `tmp/web`; serve browser controls on `http://127.0.0.1:3000` with Bun-owned files and mpv playback |
 | `bun run dev:web` | Use the same development URL with standalone browser/PWA playback and browser data tools |
+| `bun run dev:desktop` | Build development UI with source maps, then open the native desktop window with DevTools and tray |
 | `bun run check` | Check Svelte and frontend TypeScript |
 | `bun run build` | Write the production web app and offline worker to `dist` |
 | `bun run preview` | Serve `dist` on `http://127.0.0.1:4173` for PWA checks |
@@ -95,15 +96,19 @@ The mobile application ID is `org.karatala.shravanam`. Mobile preparation does n
 
 PWA URLs are relative, so the output can be hosted at a root or a subpath. No publication destination is configured. See [LOCAL_OFFLINE.md](LOCAL_OFFLINE.md).
 
-## VS Code browser debugging
+## VS Code debugging
 
 Desktop and Android are the first native targets. Develop and debug the shared interface in a desktop browser.
+
+For the native desktop, select `Debug Desktop` in Run and Debug and press F5, or run the `Dev Desktop` task. This runs `bun run dev:desktop`, builds development output in `tmp/web`, and opens the system WebView with DevTools and source maps. Use those DevTools for frontend breakpoints. The same Bun host creates the tray and supports **Continue in background**. Browser launches (`Debug app` and `Debug Web (PWA)`) do not create a tray. On Windows, also check the tray's hidden-icons menu.
+
+Close any existing desktop instance before native debugging; otherwise the new process forwards to that instance and exits. Native development uses port 47870 and the normal `Shravanam` profile, including saved positions and window state. Restart the native development terminal after source changes. This terminal launch does not attach a VS Code debugger to Bun or the frontend. Close the player or choose tray **Quit** to stop it; the player window's close button still exits instead of entering background mode.
 
 After installing dependencies, select `Debug app` in Run and Debug, then press F5. Like Rachana, this uses `node-terminal` to run `bun run dev` from the workspace root. Wait for the server address, then open `http://127.0.0.1:3000` in your browser. F5 does not open a browser or attach VS Code to frontend code. Use browser developer tools; development output retains TypeScript and Svelte source maps. Reload the page after the terminal reports an updated build.
 
 Use either F5 or the `Dev` task to start the server, not both. Stop the server with Ctrl+C in its terminal. For a server started through `Dev`, you can also use `Tasks: Terminate Task`. Stop any other server on port 3000 before starting a new one. The Bun server does not accept Rachana's Vite `--host` argument.
 
-Shared tasks: `Dev`, `Dev Web (PWA)`, `Check`, `Build`, `Preview`, `Run Desktop`, `Build Desktop`, `Prepare Android`, and `Open Android`. `Debug Web (PWA)` is the matching terminal launch for `dev:web`. `Preview` and `Run Desktop` first run `Build`. `Prepare Android` builds web output and syncs the native project; use `Open Android` afterward. Personal VS Code settings remain ignored.
+Shared tasks: `Dev Desktop`, `Dev`, `Dev Web (PWA)`, `Check`, `Build`, `Preview`, `Run Desktop`, `Build Desktop`, `Prepare Android`, and `Open Android`. `Debug Web (PWA)` is the matching terminal launch for `dev:web`. `Preview` and `Run Desktop` first run `Build`. `Prepare Android` builds web output and syncs the native project; use `Open Android` afterward. Personal VS Code settings remain ignored.
 
 Default browser debugging controls actual mpv playback through Bun. Native window behavior, tray controls, global shortcuts, and Android background behavior need their own platform checks.
 

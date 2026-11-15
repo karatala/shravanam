@@ -9,7 +9,7 @@ import { createDesktopTray } from "./tray.js";
 import { createWindowState } from "./window-state.js";
 import { libraryFailure, validLibraryRequest } from "../src/library-client.ts";
 
-export async function runDesktop(assets) {
+export async function runDesktop(assets, { development = false } = {}) {
   const origin = "http://127.0.0.1:47870";
   const profile = desktopProfile();
   const sessionPath = join(profile, "open-session.json");
@@ -139,7 +139,7 @@ export async function runDesktop(assets) {
       let webview;
       try {
         const size = window.getInnerSize(true);
-        webview = window.createWebview({ url: origin, child: true, x: 0, y: 0, width: size.width, height: size.height, webContext: context, nativeFileDrop: true, navigationHandler: url => { try { return new URL(url).origin === origin; } catch { return false; } }, newWindowHandler: () => false });
+        webview = window.createWebview({ url: origin, child: true, x: 0, y: 0, width: size.width, height: size.height, webContext: context, enableDevtools: development, nativeFileDrop: true, navigationHandler: url => { try { return new URL(url).origin === origin; } catch { return false; } }, newWindowHandler: () => false });
         const selected = { webview, context };
         content = selected;
         const publishDrag = active => { if (content === selected) webview.evaluateScript(`window.dispatchEvent(new CustomEvent('shravanam-file-drag', { detail: ${active} }))`); };
@@ -148,6 +148,7 @@ export async function runDesktop(assets) {
         webview.on("drag-drop", event => { publishDrag(false); acceptPaths(event.paths); });
         webview.expose("shravanamDesktop", desktopBridge);
         webview.expose("shravanamSources", { async getState() { return (await sourcesReady).bridge.getState(); }, async command(command) { return (await sourcesReady).bridge.command(command); } });
+        if (development) webview.openDevtools();
       } catch (error) {
         content = null;
         try { webview?.dispose(); } finally { context.dispose(); }

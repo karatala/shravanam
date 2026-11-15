@@ -3,6 +3,7 @@
 ## Purpose
 
 - Runs the shared web application through Bun and the system WebView.
+- `scripts/dev-desktop.js` calls the same host with development assets. `runDesktop(assets, { development: true })` enables and opens the app WebView's DevTools, including after tray reopen. Normal desktop launch keeps DevTools disabled.
 
 ## Ownership
 
