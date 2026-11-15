@@ -170,12 +170,24 @@ Stage verification: compare playback with the interface open and disposed; confi
 - [ ] Keep source identity with local media so position, notes, and chapters can refer to the same item after download.
 - [ ] Search the saved archive and watched/listened history.
 - [ ] Keep searchable personal notes on videos, channels, and playlists, including items without a local download.
-- [ ] Compare source acquisition options: a maintained external downloader and file import, browser integration or extension, and an embedded browser. Installed yt-dlp is selected for the first desktop YouTube playback path; broader acquisition and download behavior remain open.
+- [ ] Compare embedded browser implementations and their content-blocking support on desktop and Android. Keep the current Bun host; no new browser engine is selected. Installed yt-dlp is selected for desktop YouTube streaming and is the first candidate for offline downloads.
 - [ ] Investigate reuse of an existing downloader before implementing a browser. Define manual file import versus watched-folder import separately.
 - [ ] Evaluate yt-dlp for both media sources and related data: manual and automatic subtitles, descriptions, chapters, and comments where available. Use metadata extraction or `--skip-download` when media bytes are not needed; assess desktop and Android integration separately.
 - [ ] Maintain an explicit list of supported sites and source capabilities. The wish to load media from any site remains a research goal, not a promise.
 
 Stage verification: share a supported link, choose an available format, download it, disconnect, and resume at the saved position. Confirm that duplicate imports keep notes attached to the intended item.
+
+### [ ] Embedded browser and offline workflow
+
+- ✅ Record the requested workflow: search YouTube inside Shravanam, select a video, save audio or video, and play the saved item without an internet connection. Ad blocking is preferred. This records scope, not implemented support.
+- [ ] Verify an embedded browsing component and content-blocking method against actual YouTube navigation before selecting the implementation. The current WebviewJS binding has no ready-made ad-blocking or browser-extension API. Do not promise uBlock support or complete YouTube ad removal without verification.
+- [ ] Add source browsing with navigation and a clear action to use the selected video in Shravanam. Validate the selected source URL in the host, as with pasted links.
+- [ ] Keep external pages in a separate browser context from the app interface. Do not expose the app's privileged playback, file, or window bridge to website scripts.
+- [ ] Provide an explicit ad-blocking control when the selected component supports it, and verify that disabling it restores page behavior when filtering breaks the site.
+- [ ] Add manual download with audio/video and available quality selection, progress, cancellation, and failure recovery. Define storage ownership and the online-source/local-file identity before saving media; preserve playback position when switching to the downloaded copy.
+- [ ] Release the source browser when it is no longer needed while native playback or downloading continues. Keep sync-provider selection independent of this workflow.
+
+Verification: find a video through the embedded browser, download the selected format, disconnect, restart Shravanam, and resume the local copy at its saved position. Check browsing with ad blocking enabled and disabled. Repeat supported behavior on desktop and Android before claiming both targets work.
 
 ## [ ] Stage 4: bookmarks, notes, subtitles, and transcription
 
@@ -249,6 +261,7 @@ These references identify specific platform constraints; they do not select a co
 - [Android background playback](https://developer.android.com/media/media3/session/background-playback): Android documents a player and media session in a separate service for background playback and external controls. This supports investigating a native playback owner outside the interface.
 - [yt-dlp options](https://github.com/yt-dlp/yt-dlp#usage-and-options): yt-dlp supports subtitle files, automatic captions, metadata, and comment retrieval. `--skip-download` permits related-file retrieval without downloading the video. Source availability still needs verification.
 - [YouTube captions download](https://developers.google.com/youtube/v3/docs/captions/download): the official API method requires permission to edit the video. This restriction belongs to that API method; it does not describe yt-dlp's subtitle retrieval path.
+- [WebKit content-blocking rules](https://developer.apple.com/documentation/webkit/wkcontentruleliststore): WebKit has a native content-filtering API. Connecting it to the current desktop browser binding and checking YouTube behavior remain implementation work.
 
 ## [ ] First decisions for the next iteration
 
