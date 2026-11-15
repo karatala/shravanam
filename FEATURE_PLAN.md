@@ -95,6 +95,9 @@ Verification: check a selected-site link before enable, after enable, after rest
 
 ### [ ] Desktop mpv integration and distribution
 
+- ✅ Reject inaccessible YouTube stream formats during yt-dlp resolution with `--check-formats`, before loading them in mpv. A Windows failure reproduced HTTP 403 for the same extracted URL in the host, a fresh mpv process, and a bounded HTTP probe.
+- ✅ Check the ordinary Windows `bun run dev` browser flow after format validation: the same recorded video opened twice, playback advanced, and pause at 10.9 seconds remained after a page reload. Watch mode and other backends remain separate checks.
+
 mpv is the first desktop playback engine, running as a separate process controlled through private JSON IPC. The source finds an installed or adjacent binary; packaging does not yet bundle it. Explicit background mode now disposes the app WebView while retaining the engine.
 
 - ✅ Add a local Player settings field for the mpv executable path in native desktop and Bun browser control mode. Expand it when player discovery fails, validate the executable file, preserve the setting outside shared library data, and allow an empty reset to automatic search. Do not add package-manager-specific discovery.

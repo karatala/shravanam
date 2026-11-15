@@ -67,7 +67,8 @@ export function downloaderArguments() {
 
 export async function resolveYouTube(source, audioOnly, signal) {
   const executable = await findDownloader();
-  const args = [...downloaderArguments(), "--skip-download", "--dump-single-json", "-f", audioOnly ? "bestaudio[protocol=https]" : "bestvideo[protocol=https]+bestaudio[protocol=https]/best[protocol=https]", "-S", "res:1080,vcodec:h264", "--", source.url];
+  // Metadata can contain streams that already return 403. Check selected formats before handing them to mpv.
+  const args = [...downloaderArguments(), "--check-formats", "--skip-download", "--dump-single-json", "-f", audioOnly ? "bestaudio[protocol=https]" : "bestvideo[protocol=https]+bestaudio[protocol=https]/best[protocol=https]", "-S", "res:1080,vcodec:h264", "--", source.url];
   try {
     const stdout = await new Promise((resolve, reject) => {
       execFile(executable, args, { signal, timeout: 60000, killSignal: "SIGKILL", maxBuffer: 8 * 1024 * 1024, windowsHide: true }, (error, output) => {
