@@ -21,6 +21,7 @@
 - Reloading, hiding, or closing the development browser must not dispose the Bun player. Terminal shutdown saves progress and closes mpv and a pending file dialog. System dialogs run with argument arrays, never interpolated shell commands. Keep only one picker active.
 - Canonicalize and validate native incoming files before registering them. Use the same intake for launch arguments, native file drops, and the file dialog. Add files in order and start the first accepted item.
 - Keep positions and settings in `Shravanam/playback.json`. Persist every five seconds, on controls and file changes, and before graceful exit. Key native positions by canonical path, size, and modification time.
+- Clear a storage error only after the replacement settings file is saved successfully. Keep unrelated playback errors intact.
 - Retain the latest active-file position in host memory on player updates and save it through the serialized queue when playback stops or the player disconnects. Ignore bootstrap and post-stop properties. Mark media loaded only after position, speed, and pause restoration finish. Play after a stop or disconnect reloads the file at that position, including when duration is not yet available; normal end-of-file replay still starts at zero.
 - Keep mpv's `eof-reached` state until it clears or another file loads. While ended, report pause and the full duration even after late position, pause, or duration updates, so completion saves zero and Play starts again at zero.
 - Save 20 recent files with canonical paths in the private profile. Expose names and IDs, never paths, through playback snapshots. Revalidate files before reopening. On startup, restore only the last file and leave mpv paused; incoming launch/drop/Open With requests take priority. Missing or changed files remain in recents with an actionable error.
@@ -41,7 +42,7 @@
 
 ## Verification
 
-- `bun test tests/mpv.test.js` checks end-of-file state after late property updates.
+- `bun test` checks end-of-file state after late property updates and storage-error recovery.
 - Run desktop builds and native checks only when requested.
 
 ## Child DOX Index

@@ -79,6 +79,7 @@ Default section order:
 - Commit completed requested work without another confirmation. Do not push changes. Keep unrelated local edits out of commits unless the user explicitly includes them.
 
 - Prioritize working application changes over extended diagnostic studies. Run the checks needed for the implementation; expand measurement work only to resolve a concrete blocker.
+- Complete related implementation and checks in larger work iterations. Report one result for the full block.
 
 - Sound listening examples may omit clicks when the instrument rhythm is clear. Otherwise use only very quiet steady clicks from a separate instrument, including through rests and instrument changes. Clicks must not compete with the sound being checked. This rule applies to diagnostic examples, not automatic changes to project music.
 

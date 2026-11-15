@@ -127,6 +127,7 @@ export async function createMediaPlayer(profile) {
     try {
       await writeFile(temporary, JSON.stringify({ speed: state.speed, backward: state.backward, forward: state.forward, audioOnly: player.audioOnly, positions, recent, links: [...links.values()] }), { mode: 0o600 });
       await rename(temporary, settingsPath);
+      if (state.error?.code === "storage") state.error = null;
     } catch (error) { console.error(error); state.error = { code: "storage" }; }
   }
   let saving = false;
