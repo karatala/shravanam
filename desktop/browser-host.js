@@ -2,7 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { desktopProfile } from "./profile.js";
 import { createMediaPlayer } from "./media.js";
-import { chooseSystemMedia } from "./system-file-picker.js";
+import { chooseSystemMedia, chooseSystemMpv } from "./system-file-picker.js";
 import { validPlaybackCommand } from "../src/playback.ts";
 import { validSourceCommand, sourceFailure } from "../src/sources.ts";
 import { createSourceBrowser } from "./source-browser.js";
@@ -50,10 +50,14 @@ export function createBrowserHost(origin) {
         if (body.method === "state") return json(media.snapshot());
         if (body.method === "sleep" && validSleepCommand(body.command)) return json(await media.sleepCommand(body.command));
         if (body.method === "command" && validPlaybackCommand(body.command)) return json(await media.command(body.command));
-        if (body.method === "choose") {
+        if (body.method === "choose" || body.method === "choose-mpv") {
           if (choosing) return json({ error: "picker" }, 409);
           choosing = true;
           try {
+            if (body.method === "choose-mpv") {
+              const path = await chooseSystemMpv(pickerAbort.signal);
+              return closing ? json({ error: "host" }, 503) : json({ path });
+            }
             const paths = await chooseSystemMedia(pickerAbort.signal);
             if (closing) return json({ error: "host" }, 503);
             return json(paths.length ? await media.openPaths(paths) : media.snapshot());

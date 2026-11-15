@@ -22,12 +22,13 @@ export class MpvPlayer {
     this.waitForLoad = null;
     this.backend = null;
     this.audioOnly = true;
+    this.executablePath = "";
   }
 
   async start() {
     if (this.socket && !this.socket.destroyed) return;
     if (this.starting) return this.starting;
-    this.starting = this.startProcess(this.backend === "iina");
+    this.starting = this.startProcess(this.backend === "iina" && !this.executablePath);
     try { await this.starting; }
     finally { this.starting = null; }
   }
@@ -38,19 +39,19 @@ export class MpvPlayer {
     const candidates = [join(dirname(process.execPath), "mpv", binaryName), join(dirname(process.execPath), "..", "Resources", "mpv", "bin", binaryName), Bun.which(binaryName)];
     if (process.platform === "darwin") candidates.push("/opt/homebrew/bin/mpv", "/usr/local/bin/mpv", "/Applications/mpv.app/Contents/MacOS/mpv", join(homedir(), "Applications/mpv.app/Contents/MacOS/mpv"));
     let executable;
-    for (const candidate of iinaOnly ? [] : candidates.filter(Boolean)) {
+    for (const candidate of this.executablePath ? [this.executablePath] : iinaOnly ? [] : candidates.filter(Boolean)) {
       try { await access(candidate, constants.X_OK); executable = candidate; break; }
       catch { /* Try the next supported installation location. */ }
     }
     this.backend = "mpv";
-    if (!executable && process.platform === "darwin") {
+    if (!executable && !this.executablePath && process.platform === "darwin") {
       for (const application of ["/Applications/IINA.app", join(homedir(), "Applications/IINA.app")]) {
         const candidate = join(application, "Contents/MacOS/IINA");
         try { await access(candidate, constants.X_OK); executable = candidate; this.backend = "iina"; break; }
         catch { /* Try the next IINA installation location. */ }
       }
     }
-    if (!executable) { this.backend = null; throw Object.assign(new Error("No supported player was found"), { code: "missing-player" }); }
+    if (!executable) { this.backend = null; throw Object.assign(new Error("No supported player was found"), { code: this.executablePath ? "player-path" : "missing-player", mediaName: this.executablePath || undefined }); }
     const configDirectory = join(this.profile, "mpv");
     await mkdir(configDirectory, { recursive: true });
     const defaults = {
@@ -138,12 +139,13 @@ export class MpvPlayer {
       // Clear the failed process and socket before starting another backend.
       // Late exit/close events from this attempt must not stop its replacement.
       this.disconnected(error);
-      if (backend === "mpv" && process.platform === "darwin" && !this.closed) {
+      if (backend === "mpv" && process.platform === "darwin" && !this.executablePath && !this.closed) {
         console.warn("mpv could not start. Trying installed IINA.");
         try { return await this.startProcess(true); }
         catch (fallbackError) { if (fallbackError.code !== "missing-player") throw fallbackError; }
       }
       if (backend === "iina") error.code = "iina-player";
+      if (this.executablePath) { error.code = "player-path"; error.mediaName = this.executablePath; }
       throw error;
     }
   }

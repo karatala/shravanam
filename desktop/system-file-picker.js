@@ -30,3 +30,19 @@ export async function chooseSystemMedia(signal) {
   }
   return result ? result.split(separator) : [];
 }
+
+export async function chooseSystemMpv(signal) {
+  if (process.platform === "darwin") {
+    const result = await runPicker("osascript", ["-l", "JavaScript", "-e", 'const app = Application.currentApplication(); app.includeStandardAdditions = true; JSON.stringify(app.chooseFile({ withPrompt: "Choose mpv executable / Выберите исполняемый файл mpv" }).toString());'], signal);
+    return result ? JSON.parse(result) : null;
+  }
+  if (process.platform === "win32") {
+    const result = await runPicker("powershell.exe", ["-NoProfile", "-STA", "-Command", '[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); Add-Type -AssemblyName System.Windows.Forms; $playerDialog = New-Object System.Windows.Forms.OpenFileDialog; $playerDialog.Title = "Choose mpv executable"; $playerDialog.Filter = "Executable (*.exe)|*.exe"; if ($playerDialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { ConvertTo-Json -Compress -InputObject $playerDialog.FileName }; $playerDialog.Dispose()'], signal);
+    return result ? JSON.parse(result.replace(/^\uFEFF/, "")) : null;
+  }
+  try { return await runPicker("zenity", ["--file-selection", "--title=Choose mpv executable"], signal) || null; }
+  catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    return await runPicker("kdialog", ["--getopenfilename", ".", "", "--title", "Choose mpv executable"], signal) || null;
+  }
+}

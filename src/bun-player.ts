@@ -5,7 +5,7 @@ export class BunPlayerError extends Error {
 }
 
 export function createBunPlayer(token: string) {
-  async function request(body: { method: "state" | "choose" | "command" | "sleep"; command?: PlaybackCommand | import("./sleep").SleepCommand }): Promise<PlaybackState> {
+  async function request<Result = PlaybackState>(body: { method: "state" | "choose" | "choose-mpv" | "command" | "sleep"; command?: PlaybackCommand | import("./sleep").SleepCommand }): Promise<Result> {
     let response: Response;
     try { response = await fetch("/__player", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(body), cache: "no-store" }); }
     catch { throw new BunPlayerError("host"); }
@@ -19,6 +19,7 @@ export function createBunPlayer(token: string) {
     getPlaybackState: () => request({ method: "state" }),
     playbackCommand: (command: PlaybackCommand) => request({ method: "command", command }),
     chooseMedia: () => request({ method: "choose" }),
+    chooseMpv: () => request<{ path: string | null }>({ method: "choose-mpv" }),
     sleepCommand: (command: import("./sleep").SleepCommand) => request({ method: "sleep", command }),
   };
 }

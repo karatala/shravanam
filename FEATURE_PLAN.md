@@ -97,6 +97,10 @@ Verification: check a selected-site link before enable, after enable, after rest
 
 mpv is the first desktop playback engine, running as a separate process controlled through private JSON IPC. The source finds an installed or adjacent binary; packaging does not yet bundle it. Explicit background mode now disposes the app WebView while retaining the engine.
 
+- ✅ Add a local Player settings field for the mpv executable path in native desktop and Bun browser control mode. Expand it when player discovery fails, validate the executable file, preserve the setting outside shared library data, and allow an empty reset to automatic search. Do not add package-manager-specific discovery.
+- ✅ Add Browse to the mpv path field in both desktop modes. Select one file through the OS dialog, preserve the draft on Cancel, and keep Apply explicit.
+- ✅ Check an explicitly configured Windows mpv with an empty PATH and an isolated silent WAV: playback, pause, seeking, speed, host restart, paused position restoration, and exclusion of the executable path from library archives. Audible output and native window controls remain separate checks.
+
 - ✅ Add an installed-IINA fallback on macOS when standalone mpv is absent or fails during startup. Start a separate process with private IPC, silent initialization, and process-local preference overrides. Keep progress in Shravanam and close only its own process.
 - ✅ Add desktop Listen/Watch selection, saved with playback settings. Listen disables video. IINA uses RAM cache limits of 32/8 MiB forward/backward for Listen and 128/32 MiB for Watch, with safe hardware decoding requested for video.
 - ✅ Pass the extracted stream title to mpv before loading it, instead of letting IINA display the signed media URL as its window title. Clear the override for the next local file. Regression checks cover literal title handling, load order, and clearing on source changes. The user confirmed that IINA shows THE NEAL MORSE BAND - Do It All Again after reopening the stream on macOS.

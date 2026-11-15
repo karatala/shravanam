@@ -9,6 +9,7 @@
 - `build-web.js` compiles Svelte through Bun and generates the production offline revision from the current output.
 - `dev-desktop.js` builds development assets in `tmp/web`, reads their current asset list, and starts `desktop/main.js` with DevTools enabled. It uses the normal desktop port/profile and does not watch files; restart after source changes.
 - `serve.js` serves development output on port 3000 and production preview on port 4173, both on loopback. Default development connects to the Bun-owned player in `desktop/browser-host.js`; `--web` and production preview use standalone web playback.
+- The development startup message names mpv on Windows/Linux and the mpv/IINA alternatives only on macOS. The selected backend comes from playback state, not this startup message.
 - `build-desktop.js` embeds the current asset list and the platform WebviewJS addon. On macOS it compiles the document launcher and packages the Bun host as `ShravanamHost`.
 - `desktop-associations.js` generates macOS media document declarations and optional Windows/Linux Open With registration output. Packaging does not execute registration or change defaults.
 - `prepare-mobile.js` creates and syncs the requested Capacitor target.

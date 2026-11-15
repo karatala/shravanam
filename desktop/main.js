@@ -125,6 +125,10 @@ export async function runDesktop(assets, { development = false } = {}) {
         const media = await mediaReady;
         return paths.length ? await media.openPaths(paths) : media.snapshot();
       },
+      async chooseMpv() {
+        const paths = window.openFileDialog({ multiple: false, title: "Choose mpv executable / Выберите исполняемый файл mpv", ...(process.platform === "win32" ? { filters: [{ name: "Executable", extensions: ["exe"] }] } : {}) });
+        return { path: paths[0] ?? null };
+      },
       async getPlaybackState() { return (await mediaReady).snapshot(); },
       async playbackCommand(command) { return (await mediaReady).command(command); },
       async sleepCommand(command) { return (await mediaReady).sleepCommand(command); },

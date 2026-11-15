@@ -39,6 +39,12 @@
   let libraryLoading = $state(false);
   let libraryTarget: string | null | undefined;
   let backgroundError = $state("");
+  let mpvPath = $state("");
+  let savingMpvPath = $state(false);
+  const savedMpvPath = $derived(playback.mpvPath ?? "");
+  const mpvExample = navigator.platform.startsWith("Win") ? "C:\\Players\\mpv\\mpv.exe" : "/usr/local/bin/mpv";
+  const playerPathFailure = $derived(["missing-player", "player-path", "player-settings"].includes((interfaceError ?? playback.error)?.code ?? ""));
+  $effect(() => { mpvPath = savedMpvPath; });
   const current = $derived(playback.items.find(item => item.id === playback.currentId));
   const errorText = $derived.by(() => {
     const failure = interfaceError ?? playback.error;
@@ -49,7 +55,9 @@
     if (failure.code === "youtube") return text(`Cannot open YouTube${name}. Check the connection and that the video plays without signing in. Update yt-dlp (or IINA if using its copy) and ensure a supported JavaScript runtime, for example Deno, is installed, then open the link again.`, `Не удалось открыть YouTube${name}. Проверьте соединение и доступность ролика без входа в аккаунт. Обновите yt-dlp (или IINA, если используется его копия) и проверьте наличие поддерживаемой среды JavaScript, например Deno, затем откройте ссылку снова.`);
     if (failure.code === "youtube-live") return text("Cannot open this live or upcoming stream yet. Open a recorded YouTube video instead.", "Прямой эфир или запланированная трансляция пока не поддерживается. Откройте записанный ролик YouTube.");
     if (failure.code === "format") return text(`Cannot open${name}. Choose a supported audio or video file, for example book.mp3 or chapter.m4b.`, `Не удалось открыть${name}. Выберите аудио или видео поддерживаемого формата, например book.mp3 или chapter.m4b.`);
-    if (failure.code === "missing-player") return text("Cannot start playback: no supported player was found. On macOS, place IINA.app or mpv.app in Applications. On Windows or Linux, install mpv and add it to PATH. Then open the file again.", "Не удалось начать воспроизведение: подходящий плеер не найден. На macOS поместите IINA.app или mpv.app в папку «Программы». На Windows или Linux установите mpv и добавьте его в PATH. Затем откройте файл снова.");
+    if (failure.code === "missing-player") return text("Cannot start playback: no supported player was found. Enter the full path to mpv in Player settings below, apply it, then press Play or open the file again.", "Не удалось начать воспроизведение: плеер не найден. Укажите полный путь к mpv в настройках плеера ниже, примените его и нажмите «Воспроизвести» или откройте файл снова.");
+    if (failure.code === "player-settings") return text("Cannot read or save the mpv path. Check free space and access to the application data folder, then apply the path again.", "Не удалось прочитать или сохранить путь к mpv. Проверьте свободное место и доступ к папке данных приложения, затем примените путь снова.");
+    if (failure.code === "player-path") return text(`Cannot use mpv${name}. Enter the full path to its executable file, for example ${mpvExample}, without quotes or arguments. Check that it exists and can run, apply the path, then press Play. Clear the field to use automatic search.`, `Не удалось использовать mpv${name}. Укажите полный путь к исполняемому файлу, например ${mpvExample}, без кавычек и параметров. Проверьте, что файл существует и запускается, примените путь и нажмите «Воспроизвести». Очистите поле для автоматического поиска.`);
     if (failure.code === "iina-player") return text("Cannot connect to the IINA player started by Shravanam. Restart Shravanam and open the file again. If this continues, open IINA from Applications to check that macOS allows it to run.", "Не удалось подключиться к IINA, запущенному из Shravanam. Перезапустите Shravanam и откройте файл снова. Если ошибка осталась, откройте IINA из папки «Программы» и проверьте, что macOS разрешает его запуск.");
     if (failure.code === "player-closed") return text("Playback stopped or the player closed. Press Play to reopen the file at the last saved position.", "Воспроизведение остановлено или плеер закрыт. Нажмите «Воспроизвести», чтобы открыть файл с последней сохранённой позиции.");
     if (failure.code === "host") return text("Cannot connect to the local player. Start or restart bun run dev in the terminal, then reload this page.", "Нет связи с локальным плеером. Запустите или перезапустите bun run dev в терминале и обновите страницу.");
@@ -105,6 +113,14 @@
     if (!nativeDesktop) return;
     try { nativeLibrary = await requestLibrary({ type: "state" }); libraryError = ""; }
     catch (error) { libraryError = libraryFailure(error).split(" / ")[russian ? 1 : 0] ?? libraryFailure(error); }
+  }
+  async function browseMpv() {
+    savingMpvPath = true;
+    try {
+      const { path } = await desktopPlayer()!.chooseMpv();
+      if (path) { mpvPath = path; interfaceError = null; }
+    } catch (error) { console.error(error); interfaceError = { code: error instanceof BunPlayerError ? error.code : "picker" }; }
+    finally { savingMpvPath = false; }
   }
   async function backgroundWindow() {
     backgroundError = "";
@@ -226,6 +242,17 @@
     </div>
   {/if}
   {#if errorText}<p class="error" role="alert">{errorText}</p>{/if}
+  {#if nativeDesktop}
+    <details open={playerPathFailure}>
+      <summary>{text("Player settings", "Настройки плеера")}</summary>
+      <form class="controls playback-mode" onsubmit={async event => { event.preventDefault(); savingMpvPath = true; try { await command({ type: "mpv-path", value: mpvPath }); } finally { savingMpvPath = false; } }}>
+        <label class="link-field">{text("Path to mpv", "Путь к mpv")}<input type="text" bind:value={mpvPath} maxlength="32768" placeholder={mpvExample} autocomplete="off" spellcheck="false" /></label>
+        <button type="button" class="action" disabled={!ready || playback.loading || savingMpvPath} onclick={browseMpv} onpointerup={releasePointerFocus}>{text("Browse…", "Обзор…")}</button>
+        <button type="submit" class="action" disabled={!ready || playback.loading || savingMpvPath} onpointerup={releasePointerFocus}>{text("Apply", "Применить")}</button>
+      </form>
+      <p class="hint">{text("Leave empty for automatic search. After applying the path, press Play or reopen the file. If the player is already running, restart Shravanam to use the new path.", "Оставьте поле пустым для автоматического поиска. После применения пути нажмите «Воспроизвести» или откройте файл снова. Если плеер уже запущен, перезапустите Shravanam для использования нового пути.")}</p>
+    </details>
+  {/if}
   {#if !nativePlayer}<video bind:this={mediaElement} class:audio-only={current?.kind !== "video"} playsinline preload="metadata"><track kind="captions" /></video>{/if}
   {#if current}
     <h2>{current.name}</h2>
@@ -297,9 +324,9 @@
   .timeline { display: grid; gap: 8px; margin: 16px 0; }
   .timeline input { width: 100%; accent-color: #fec965; }
   label { display: flex; align-items: center; gap: 8px; }
-  select, input[type="number"], input[type="url"] { padding: 6px; background: #292929; color: #eee; border: none; border-radius: 4px; }
+  select, input[type="number"], input[type="url"], input[type="text"] { padding: 6px; background: #292929; color: #eee; border: none; border-radius: 4px; }
   .link-field { flex: 1; min-width: 180px; }
-  input[type="url"] { flex: 1; min-width: 0; }
+  input[type="url"], input[type="text"] { flex: 1; min-width: 0; }
   input[type="number"] { width: 80px; }
   details { margin-top: 20px; }
   summary { cursor: pointer; }

@@ -1,6 +1,7 @@
-import { realpath, stat, readFile, writeFile, rename } from "node:fs/promises";
+import { access, realpath, stat, readFile, writeFile, rename } from "node:fs/promises";
+import { constants } from "node:fs";
 import { createHash } from "node:crypto";
-import { basename, isAbsolute, join } from "node:path";
+import { basename, extname, isAbsolute, join } from "node:path";
 import { initialPlaybackState, mediaKind, validPlaybackCommand } from "../src/playback.ts";
 import { MpvPlayer } from "./mpv.js";
 import { youtubeSource, resolveYouTube } from "./youtube.js";
@@ -20,6 +21,7 @@ export async function createMediaPlayer(profile, dependencies = {}) {
   const resolverAbort = new AbortController();
   let resolving = false;
   const settingsPath = join(profile, "playback.json");
+  const playerSettingsPath = join(profile, "player.json");
   let currentId = null;
   let serial = Promise.resolve();
   let closing = false;
@@ -28,6 +30,7 @@ export async function createMediaPlayer(profile, dependencies = {}) {
   let recent = [];
   let openedExplicitly = false;
   let audioOnly = true;
+  let mpvPath = "";
   let activePlaylist = null;
   let endedHandled = false;
   let importPreview = null;
@@ -49,6 +52,11 @@ export async function createMediaPlayer(profile, dependencies = {}) {
       } catch { /* Ignore invalid saved links without removing local files. */ }
     }
   } catch (error) { if (error.code !== "ENOENT") { console.error(error); state.error = { code: "storage" }; } }
+  try {
+    const settings = JSON.parse(await readFile(playerSettingsPath, "utf8"));
+    if (!validPlaybackCommand({ type: "mpv-path", value: settings.mpvPath })) throw new Error("Invalid player settings");
+    mpvPath = settings.mpvPath;
+  } catch (error) { if (error.code !== "ENOENT") { console.error(error); state.error = { code: "player-settings" }; } }
   const library = await createLibraryStore(profile);
   await library.migrateLegacy({ recent, links: [...links.values()], positions, sourceBindings, speed: state.speed, backward: state.backward, forward: state.forward });
   const portableSettings = primaryRecords(library.snapshot()).find(record => record.kind === "settings")?.value;
@@ -65,7 +73,8 @@ export async function createMediaPlayer(profile, dependencies = {}) {
   });
   player.state.speed = state.speed;
   player.audioOnly = audioOnly;
-  const snapshot = () => ({ ...state, ...(currentId ? player.state : {}), loading: resolving || player.state.loading, currentId, libraryMediaId: library.binding(currentId)?.mediaId ?? null, sleep: { ...sleep.snapshot(), voices, error: sleepError || sleep.snapshot().error }, audioOnly: player.audioOnly, backend: player.backend, items: [...state.items], recent: recent.map(({ id, name, kind, title }) => ({ id, name: typeof title === "string" ? title : name, kind })), recentLinks: [...links.values()].reverse().map(({ id, name, kind }) => ({ id, name, kind })) });
+  player.executablePath = mpvPath;
+  const snapshot = () => ({ ...state, ...(currentId ? player.state : {}), loading: resolving || player.state.loading, currentId, libraryMediaId: library.binding(currentId)?.mediaId ?? null, sleep: { ...sleep.snapshot(), voices, error: sleepError || sleep.snapshot().error }, audioOnly: player.audioOnly, backend: player.backend, mpvPath, items: [...state.items], recent: recent.map(({ id, name, kind, title }) => ({ id, name: typeof title === "string" ? title : name, kind })), recentLinks: [...links.values()].reverse().map(({ id, name, kind }) => ({ id, name, kind })) });
   const sleepContext = () => ({ mediaId: library.binding(currentId)?.mediaId ?? null, time: player.state.time, available: Boolean(currentId && player.loaded && !player.state.loading && !resolving), playing: Boolean(currentId && player.loaded && !player.state.paused && !player.state.loading && !resolving), volume: player.state.volume ?? 100 });
   async function applySleepEffects(effects) {
     for (const effect of effects) {
@@ -82,7 +91,7 @@ export async function createMediaPlayer(profile, dependencies = {}) {
   function queue(action) {
     const next = serial.then(async () => { if (!closing) await action(); }).catch(error => {
       console.error("Desktop media action failed", error);
-      state.error = { code: ["missing-player", "iina-player", "open", "changed-file", "youtube-link", "missing-downloader", "youtube", "youtube-live"].includes(error.code) ? error.code : "player", name: error.mediaName ?? state.items.find(item => item.id === currentId)?.name };
+      state.error = { code: ["player-settings", "missing-player", "player-path", "iina-player", "open", "changed-file", "youtube-link", "missing-downloader", "youtube", "youtube-live"].includes(error.code) ? error.code : "player", name: error.mediaName ?? state.items.find(item => item.id === currentId)?.name };
     });
     serial = next;
     return next.then(snapshot);
@@ -356,6 +365,23 @@ export async function createMediaPlayer(profile, dependencies = {}) {
       if (["select", "recent", "open-youtube"].includes(command.type)) openedExplicitly = true;
       return queue(async () => {
         if (["select", "recent", "open-youtube"].includes(command.type)) activePlaylist = null;
+        if (command.type === "mpv-path") {
+          const selected = command.value.trim();
+          if (selected) {
+            try {
+              if (!isAbsolute(selected) || (process.platform === "win32" && extname(selected).toLowerCase() !== ".exe")) throw new Error("Choose an executable file");
+              if (!(await stat(selected)).isFile()) throw new Error("Choose a file, not a folder");
+              await access(selected, constants.X_OK);
+            } catch (error) { throw Object.assign(error, { code: "player-path", mediaName: selected }); }
+          }
+          try {
+            await writeFile(`${playerSettingsPath}.pending`, JSON.stringify({ mpvPath: selected }), { mode: 0o600 });
+            await rename(`${playerSettingsPath}.pending`, playerSettingsPath);
+          } catch (error) { throw Object.assign(error, { code: "player-settings" }); }
+          mpvPath = selected;
+          player.executablePath = selected;
+          if (["missing-player", "player-path", "player-settings", "player"].includes(state.error?.code)) state.error = null;
+        }
         if (command.type === "open-youtube") {
           const source = youtubeSource(command.url);
           await selectLink(source, true, source.start, command.audioOnly ?? player.audioOnly);
