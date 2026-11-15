@@ -160,9 +160,12 @@ Stage verification: open a supported source, change speed, seek, reopen at the s
 - [ ] Expose play/pause and the configured time jumps through supported lock-screen and headset controls.
 - [ ] Add useful notification actions where the platform supports them; define the action set per platform.
 - [ ] Investigate volume-button control separately from normal volume adjustment. Define a user-selected mode and supported platforms before intercepting any buttons.
-- ✅ Add desktop tray Open, Play/Pause, configured backward/forward jumps, and Quit, owned by Bun while the app WebView/context is disposed. Lifecycle/menu tests cover commands and unavailable-tray recovery. Native platform verification remains pending.
+- ✅ Add desktop tray Open, Play/Pause, configured backward/forward jumps, and Quit, owned by Bun while the app WebView/context is disposed. Lifecycle/menu tests cover commands and unavailable-tray recovery. After fixing native-event reentry, the user confirmed the macOS background/reopen flow works; other platforms remain pending.
 - ✅ Recreate the desktop interface on tray Open or incoming media without reopening the active track. Retain an empty hidden native window to keep WebviewJS alive.
 - ✅ Keep explicit Continue in background separate from Close/Quit. If the tray is unavailable, retain or restore the player interface and show an actionable failure.
+- ✅ Persist desktop normal window coordinates, size, and maximized state locally. Restore before showing; fit saved geometry to an available monitor after display changes. Keep normal geometry when hidden, minimized, or fullscreen. Startup does not request focus; explicit tray Open and incoming files still do.
+- ✅ Check saved normal coordinates and size through a full native macOS host restart. The restored host kept the same geometry and logged no startup error.
+- [ ] Verify changed display layout and macOS fullscreen/RDP use. Geometry does not save a Space. Current WebviewJS cannot select a Space; user-controlled Dock assignment and Mission Control settings apply separately. Do not imply that stored coordinates prevent all fullscreen/Space transitions.
 - [ ] Add global shortcuts and supported OS media controls. Verify real headset and system-volume events; current app/mpv volume observation does not establish system-volume support.
 - [ ] Compare memory, CPU, and energy use for the same media, codec, resolution, and output mode. Check hardware video decoding and avoid duplicate decoders. Lower resource use is a goal to measure, not a guarantee from choosing a native wrapper.
 - [ ] In audio-only mode, avoid video decoding and video transfer when the source provides a usable separate audio stream. Record behavior when it does not.

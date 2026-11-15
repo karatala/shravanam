@@ -6,7 +6,7 @@
 
 ## Ownership
 
-- `main.js` owns the fixed local server, OS data directory, native window, file dialog, OS drops, and single-instance delivery.
+- `main.js` owns the fixed local server, OS data directory, native window, file dialog, OS drops, and single-instance delivery. `window-state.js` owns local window geometry and maximized-state persistence.
 - `browser-host.js` provides the development browser's authenticated control endpoint around the same `media.js` player. `system-file-picker.js` uses OS dialogs without a WebView, following Rachana's picker pattern. `profile.js` resolves native profile locations.
 - `media.js` owns file intake, recent files, playback actions, EOF playlist transitions, and library/progress boundaries outside the WebView. `library-store.js` owns atomic shared records, local bindings, migration, archives, and one recovery snapshot. `webdav.js` owns manual per-device snapshot synchronization. `sleep.js` owns adaptive timing and saved sleep markers; `speech.js` owns installed OS voices and cancellable speech. `tray.js` owns native menus without a WebView.
 - `mpv.js` owns the separate mpv or IINA process, private IPC, audio/video mode, and application-owned mpv configuration.
@@ -46,6 +46,8 @@
 - Before loading a resolved stream, set mpv's force-media-title to the extracted title so IINA and mpv show the video name instead of the signed stream address. Pass it as a literal IPC string, not a window-title expression. Clear the override when loading a local file so the previous stream title cannot carry over.
 - Explicit background mode first verifies the native tray, then hides the retained empty main window and disposes the app WebView/context. Retain the empty window because disposing the last native window exits WebviewJS. Tray Open and incoming OS files recreate one interface using the persistent profile. Tray play/pause and time jumps use the same commands and configured intervals. Close and tray Quit stop the owned playback, speech, sources, and host. Video uses mpv's separate native window. Global shortcuts and OS media-session adapters remain pending.
 - Defer native tray menu actions with `setImmediate` before creating contexts, recreating the window, or quitting. WebviewJS dispatches these callbacks while `pumpEvents` holds the native Application borrow. Check disposal again after deferral; catch a failed Open once without a recursive retry.
+- Save normal window position in physical coordinates and inner size in logical units in private `window.json`; save maximized state separately. Defer and debounce move/resize reads outside native events. Flush before hiding and exit. Hidden, minimized, and fullscreen geometry must not replace normal bounds. Restore before showing, clamp to an available monitor, and keep the window off the always-on-top and all-workspace modes. Do not force focus at startup; an explicit tray Open or incoming file can focus it.
+- Geometry does not identify a macOS Space. WebviewJS has no public Space-selection API in the current version. Keep Space assignment and Mission Control preferences under user control; do not change global macOS settings or use private workspace APIs. A debug Bun process does not have the packaged Shravanam application's identity for per-app Dock assignments.
 - Keep native decorations disabled. The HTML startup header provides movement and close controls before Svelte loads and after startup failure.
 - The current WebView directory is persistent. Do not clear it or assume it holds only reproducible cache.
 - Native source configuration does not establish tested platform support.
@@ -55,6 +57,7 @@
 ## Verification
 
 - `bun test` checks late EOF events, storage recovery, source-window isolation, authenticated source commands, userscript matching/timing/persistence, download paths and lifecycle, and local restoration of source progress. Native browser/site behavior and real downloads remain separate checks.
+- `tests/window-state.test.js` checks saved geometry, monitor changes, scale factors, and hidden/maximized states. `tests/webdav-host.test.js` uses an isolated loopback server for native synchronization requests, streamed bodies, conflicts, and responsive controls during preview. A sandbox that blocks listening needs a test run with loopback access. This is not verification of a real WebDAV provider.
 - Run desktop builds and native checks only when requested.
 
 ## Child DOX Index

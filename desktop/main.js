@@ -6,6 +6,7 @@ import { mediaExtensions } from "../src/playback.ts";
 import { desktopProfile } from "./profile.js";
 import { createSourceBrowser } from "./source-browser.js";
 import { createDesktopTray } from "./tray.js";
+import { createWindowState } from "./window-state.js";
 import { libraryFailure, validLibraryRequest } from "../src/library-client.ts";
 
 export async function runDesktop(assets) {
@@ -62,9 +63,11 @@ export async function runDesktop(assets) {
   try {
     await mkdir(profile, { recursive: true, mode: 0o700 });
     await writeFile(sessionPath, JSON.stringify({ token }), { mode: 0o600 });
+    const windowState = await createWindowState(profile);
     const { Application } = await import("@webviewjs/webview");
     const app = new Application();
-    const window = app.createBrowserWindow({ title: "Shravanam", width: 900, height: 700, decorations: false, resizable: true });
+    const window = app.createBrowserWindow({ title: "Shravanam", width: 900, height: 700, decorations: false, resizable: true, visible: false, focused: false, alwaysOnTop: false, visibleOnAllWorkspaces: false });
+    windowState.restore(window);
     const icon = await Bun.file(assets["/icons/icon-512.png"]).arrayBuffer();
     if (process.platform === "darwin") app.setDockIcon(Buffer.from(icon));
     else window.setWindowIcon(Buffer.from(icon));
@@ -86,6 +89,7 @@ export async function runDesktop(assets) {
       if (closing) return null;
       closing = true;
       clearImmediate(backgroundTimer);
+      await windowState.flush(window);
       tray?.dispose();
       try { await (await sourcesReady).close(); }
       catch (error) { console.error("Could not close sources", error); }
@@ -103,9 +107,11 @@ export async function runDesktop(assets) {
       backgroundTimer = setImmediate(() => {
         if (closing) return;
         if (!tray.available()) { focusWindow(); return; }
+        windowState.capture(window);
         window.hide();
         try { disposeContent(); }
         catch (error) { console.error("Could not unload the interface", error); focusWindow(); }
+        void windowState.flush(window);
       });
       return null;
     }
@@ -155,14 +161,18 @@ export async function runDesktop(assets) {
       window.setMinimized(false); window.show(); window.focus();
     };
     window.on("resize", () => {
+      windowState.schedule(window);
       if (!content) return;
       const size = window.getInnerSize(true);
       content.webview.setBounds({ x: 0, y: 0, width: size.width, height: size.height });
     });
+    window.on("move", () => windowState.schedule(window));
     window.on("close", event => { event.preventDefault(); void requestWindowClose(); });
     acceptPaths = paths => { void mediaReady.then(media => media.openPaths(paths)).catch(error => console.error("Could not open media", error)); };
     tray = createDesktopTray({ app, icon: Buffer.from(icon), getPlaybackState: async () => (await mediaReady).snapshot(), command: async command => (await mediaReady).command(command), openWindow: focusWindow, quit: requestWindowClose, onUnavailable: () => { if (!closing && !content) focusWindow(); } });
     createContent();
+    window.show();
+    windowState.schedule(window);
     for (const paths of pendingBatches) if (paths.length) acceptPaths(paths);
     if (!pendingBatches.some(paths => paths.length)) void mediaReady.then(media => media.restoreLast()).catch(error => console.error("Could not restore last media", error));
     app.on("application-close-requested", () => { void requestWindowClose(); });
