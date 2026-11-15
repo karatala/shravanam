@@ -9,9 +9,9 @@ const origin = `http://127.0.0.1:${preview ? 4173 : 3000}`;
 const root = preview ? resolve("dist") : await buildWeb(true);
 if (!await Bun.file(resolve(root, "index.html")).exists()) throw new Error("Cannot find the web app. Run bun run build, then bun run preview.");
 let host;
-const server = Bun.serve({ hostname: "127.0.0.1", port: preview ? 4173 : 3000, maxRequestBodySize: 8192, async fetch(request) {
+const server = Bun.serve({ hostname: "127.0.0.1", port: preview ? 4173 : 3000, maxRequestBodySize: 1024 * 1024, async fetch(request) {
   if (new URL(request.url).origin !== origin || request.headers.get("host") !== new URL(origin).host) return new Response(null, { status: 403 });
-  if (new URL(request.url).pathname === "/__player" && host) return host.handle(request);
+  if (["/__player", "/__sources"].includes(new URL(request.url).pathname) && host) return host.handle(request);
   if (!["GET", "HEAD"].includes(request.method)) return new Response(null, { status: 405 });
   let pathname;
   try { pathname = decodeURIComponent(new URL(request.url).pathname); }
@@ -20,7 +20,7 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: preview ? 4173 : 3000, m
   if (!path.startsWith(root + sep)) return new Response(null, { status: 403 });
   const file = Bun.file(path);
   if (!await file.exists()) return new Response("Not found", { status: 404 });
-  const body = host && path === resolve(root, "index.html") ? (await file.text()).replace("<head>", `<head><script>window.shravanamBunHost=${JSON.stringify({ token: host.token })};</script>`) : file;
+  const body = host && path === resolve(root, "index.html") ? (await file.text()).replace("<head>", `<head><script>window.shravanamBunHost=${JSON.stringify({ token: host.token })};window.shravanamSourceTools=${new URL(request.url).searchParams.get("tool") === "sources"};</script>`) : file;
   return new Response(request.method === "HEAD" ? null : body, { headers: { "Content-Type": file.type, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY" } });
 } });
 if (nativePlayback) host = createBrowserHost(origin);

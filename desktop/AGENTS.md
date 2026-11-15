@@ -11,11 +11,17 @@
 - `media.js` owns the accepted file list, recent files, serialized playback actions, and `playback.json` outside the WebView.
 - `mpv.js` owns the separate mpv or IINA process, private IPC, audio/video mode, and application-owned mpv configuration.
 - `youtube.js` validates and canonicalizes individual YouTube links, finds installed yt-dlp, and resolves HTTPS streams without media downloads. It owns extraction limits and stream/header validation.
+- `source-browser.js` owns the separate website window and its trusted local toolbar. `source-scripts.js` owns local userscript validation, persistence, and page preload. `downloads.js` owns manual yt-dlp jobs, partial files, the download index, and offline opening by saved ID.
 
 ## Local Contracts
 
 - Use loopback port 47870 and the Shravanam data directory, separate from Rachana. Forward launch files to an existing authenticated instance. Fail for an unrelated port occupant; do not select a new origin.
 - Serve only the current asset map. Block external navigation and new windows. Expose window controls, native file selection, playback state, and the validated commands from `src/playback.ts`. Do not expose raw mpv IPC or page-supplied paths.
+- Keep the source browser separate from the app WebView. Its toolbar stays on the app origin; external pages use their own persistent `source-browser` context, allow only HTTPS navigation, block new windows, and receive no application bridge or drag helpers. Retain child WebView handles and resize them in logical coordinates. Closing this window disposes its views/context and leaves playback and downloads alive. Retain one hidden empty window until host exit because disposing the last native window also disposes WebviewJS's Application; reuse it when reopening.
+- Browser development opens the same native source window on demand. `/__sources` uses the same Host/Origin/token/content-type checks as `/__player` and validates commands from `src/sources.ts`. Import source text, never page-supplied local paths. Website code cannot call the source-control endpoint.
+- Userscripts are local page code, not Bun code. Import and the editor support HTTPS `@match`, wildcard schemes restricted to HTTPS, `@exclude-match`/URL-glob `@exclude`, `@name`/`@namespace`, and `@run-at document-start`, `document-end`, or `document-idle`. Execute in the top-level matching website document. Reject privileged `@grant`, remote `@require`/`@resource`, invalid syntax, and files above 128 KiB. Keep up to 32 scripts in `source-scripts.json`, retain its previous copy, and reload the source view after changes. Name/namespace identify updates. Full Violentmonkey APIs are not implemented.
+- `downloads.json` contains canonical source links, titles, selected mode/quality, status, and device-local relative filenames. Download into private `downloads/<id>/` folders through argument arrays and shared yt-dlp discovery/runtime restrictions. Do not save full extractor metadata or signed stream addresses. Require installed ffmpeg for merging video; never install it automatically. Keep one active manual download, retain partial files for retry, and expose progress/cancel/retry/open without local paths. Mark ready only after successful process exit and a nonempty media file resolves inside the owned directory. Cancellation and shutdown stop only the owned downloader process tree.
+- Opening a completed download revalidates its owned path, uses its title and selected mode, and binds its local file identity to the YouTube source progress key. Persist `sourceBindings` in playback.json so startup can restore the local copy paused without network access. This is a native progress association, not shared-library synchronization or backup.
 - The local file-forwarding endpoint requires the token from the user's private `open-session.json` and rejects browser Origin headers. Retain batches received before the player is ready.
 - Browser development uses port 3000 and the separate `Shravanam-dev` profile to avoid concurrent writes to the packaged desktop profile. Create its player only after the server owns its port. All `/__player` calls require POST, exact loopback Host/Origin, JSON content type, and the per-run token injected into the app HTML. Do not enable CORS, accept page-supplied paths, or expose raw mpv commands. Accept only state, validated playback commands (including `open-youtube`), and system-file selection. Revalidate YouTube URLs in the host before running yt-dlp.
 - Reloading, hiding, or closing the development browser must not dispose the Bun player. Terminal shutdown saves progress and closes mpv and a pending file dialog. System dialogs run with argument arrays, never interpolated shell commands. Keep only one picker active.
@@ -42,7 +48,7 @@
 
 ## Verification
 
-- `bun test` checks end-of-file state after late property updates and storage-error recovery.
+- `bun test` checks late EOF events, storage recovery, source-window isolation, authenticated source commands, userscript matching/timing/persistence, download paths and lifecycle, and local restoration of source progress. Native browser/site behavior and real downloads remain separate checks.
 - Run desktop builds and native checks only when requested.
 
 ## Child DOX Index

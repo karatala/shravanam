@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { createMediaPlayer } from "./media.js";
 import { mediaExtensions } from "../src/playback.ts";
 import { desktopProfile } from "./profile.js";
+import { createSourceBrowser } from "./source-browser.js";
 
 export async function runDesktop(assets) {
   const origin = "http://127.0.0.1:47870";
@@ -42,7 +43,7 @@ export async function runDesktop(assets) {
       if (!asset) return new Response("Not found", { status: 404 });
       const file = Bun.file(asset);
       if (pathname === "/index.html") {
-        const html = (await file.text()).replace("<head>", "<head><script>window.shravanamDesktopHost=true;</script>");
+        const html = (await file.text()).replace("<head>", `<head><script>window.shravanamDesktopHost=true;window.shravanamSourceTools=${url.searchParams.get("tool") === "sources"};</script>`);
         return new Response(request.method === "HEAD" ? null : html, { headers: { "Content-Type": "text/html", "Cache-Control": "no-store" } });
       }
       return new Response(request.method === "HEAD" ? null : file, { headers: { "Content-Type": file.type, "Cache-Control": "no-store" } });
@@ -69,10 +70,14 @@ export async function runDesktop(assets) {
     const webContext = app.createWebContext({ dataDirectory: join(profile, "webview") });
     const webview = window.createWebview({ url: origin, webContext, nativeFileDrop: true, navigationHandler: url => new URL(url).origin === origin, newWindowHandler: () => false });
     const mediaReady = createMediaPlayer(profile);
+    const sourcesReady = mediaReady.then(media => createSourceBrowser({ profile, origin, media, getApplication: async () => app }));
+    void sourcesReady.catch(() => {});
     let closing = false;
     async function requestWindowClose() {
       if (closing) return null;
       closing = true;
+      try { await (await sourcesReady).close(); }
+      catch (error) { console.error("Could not close sources", error); }
       try { await (await mediaReady).close(); }
       catch (error) { console.error("Could not save playback on close", error); }
       finally { window.dispose(); server.stop(true); app.exit(); }
@@ -96,11 +101,14 @@ export async function runDesktop(assets) {
       async getPlaybackState() { return (await mediaReady).snapshot(); },
       async playbackCommand(command) { return (await mediaReady).command(command); },
     });
+    webview.expose("shravanamSources", { async getState() { return (await sourcesReady).bridge.getState(); }, async command(command) { return (await sourcesReady).bridge.command(command); } });
     for (const paths of pendingBatches) if (paths.length) acceptPaths(paths);
     if (!pendingBatches.some(paths => paths.length)) void mediaReady.then(media => media.restoreLast()).catch(error => console.error("Could not restore last media", error));
     app.on("application-close-requested", () => { void requestWindowClose(); });
     const media = await mediaReady;
-    process.once("exit", () => media.terminate());
+    let sources;
+    void sourcesReady.then(value => { sources = value; }).catch(() => {});
+    process.once("exit", () => { sources?.terminate(); media.terminate(); });
     for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => { void requestWindowClose().finally(() => process.exit(0)); });
     app.run();
   } catch (error) {

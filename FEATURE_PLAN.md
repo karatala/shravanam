@@ -22,6 +22,7 @@ This document tracks implemented source and remaining work. ✅ marks completed 
 - ✅ Run `bun run build` and `bun run desktop` on macOS. The production asset list contained all seven files, with resolved entry and offline-cache placeholders and no source maps or development bridge token. The native host started on port 47870 without terminal errors. Its separate profile saved playback and reset completed WAV progress to zero. The user confirmed that the native window showed the player.
 - ✅ Check the native macOS file dialog with user-operated Cancel and Open. The selected MP3 started and could be paused. The native profile retained its position separately from browser development.
 - ✅ Check native macOS interface controls with the user after restart. The restored file appeared paused near 20 seconds. After clicking the forward button, Space started and paused playback, and Left sought backward. Maximizing and returning to the normal window size worked.
+- ✅ Add desktop source for a separate website browser with a trusted local toolbar, YouTube search/navigation, single-command Listen/Watch handoff, manual yt-dlp downloads, and local userscript import/editing. Keep external pages outside the app bridge. Native site and real-download checks remain pending.
 - [ ] Verify Bun control mode on other targets: native picker cancel/open, page reload, closed-tab playback, multiple control tabs, and recent-file restoration after terminal restart. Repeat missing-player checks on other targets and check actual unavailable-dialog behavior.
 
 ## [ ] Data foundation: synchronization and recovery
@@ -162,15 +163,15 @@ Stage verification: compare playback with the interface open and disposed; confi
 
 ## [ ] Stage 3: downloads, sources, and archive
 
-- [ ] Offline download with a choice of audio-only or video where the source supports it.
+- ✅ Add desktop manual offline-download source with audio or video up to 480p/720p/1080p, one active job, progress, cancellation, retry, and a persistent ready/interrupted list. Keep partial files for retry and verify the completed media path before marking ready. Installed ffmpeg is required for video merging. Native and real-source verification remains separate.
 - [ ] Automatic downloading. Define triggers, queue limits, network conditions, storage limits, and retry behavior before enabling it.
-- [ ] Represent waiting, downloading, interrupted, ready, and failed downloads clearly. An incomplete file must not appear as an offline-ready item.
+- ✅ Represent downloading, finishing, interrupted, ready, and failed states in the desktop interface. An incomplete file cannot open as offline-ready. A waiting queue remains pending with automatic downloading.
 - ✅ Add manual paste/open of individual recorded YouTube links on desktop, including video links with playlist parameters and explicit timestamps. Keep 20 canonical source links separate from local recents; store no signed stream URLs.
 - [ ] Add OS Share/Open with input for YouTube links and Android/PWA adapters. Separate receipt of the link from successful media extraction and playback.
-- [ ] Keep source identity with local media so position, notes, and chapters can refer to the same item after download.
+- ✅ Bind desktop downloaded file identities to the existing YouTube progress key, retain the title, and restore the local copy paused without fetching streams. Shared-library IDs, notes/chapter links, and native adapter migration remain pending in `DATA_PLAN.md`.
 - [ ] Search the saved archive and watched/listened history.
 - [ ] Keep searchable personal notes on videos, channels, and playlists, including items without a local download.
-- [ ] Compare embedded browser implementations and their content-blocking support on desktop and Android. Keep the current Bun host; no new browser engine is selected. Installed yt-dlp is selected for desktop YouTube streaming and is the first candidate for offline downloads.
+- ✅ Use the existing desktop WebviewJS/system WebView with a separate website context and local toolbar. Use the existing installed yt-dlp discovery and runtime restrictions for explicit offline downloads. Keep the Bun host. Native behavior and the Android adapter remain to be verified/implemented.
 - [ ] Investigate reuse of an existing downloader before implementing a browser. Define manual file import versus watched-folder import separately.
 - [ ] Evaluate yt-dlp for both media sources and related data: manual and automatic subtitles, descriptions, chapters, and comments where available. Use metadata extraction or `--skip-download` when media bytes are not needed; assess desktop and Android integration separately.
 - [ ] Maintain an explicit list of supported sites and source capabilities. The wish to load media from any site remains a research goal, not a promise.
@@ -179,13 +180,17 @@ Stage verification: share a supported link, choose an available format, download
 
 ### [ ] Embedded browser and offline workflow
 
-- ✅ Record the requested workflow: search YouTube inside Shravanam, select a video, save audio or video, and play the saved item without an internet connection. Ad blocking is preferred. This records scope, not implemented support.
-- [ ] Verify an embedded browsing component and content-blocking method against actual YouTube navigation before selecting the implementation. The current WebviewJS binding has no ready-made ad-blocking or browser-extension API. Do not promise uBlock support or complete YouTube ad removal without verification.
-- [ ] Add source browsing with navigation and a clear action to use the selected video in Shravanam. Validate the selected source URL in the host, as with pasted links.
-- [ ] Keep external pages in a separate browser context from the app interface. Do not expose the app's privileged playback, file, or window bridge to website scripts.
-- [ ] Provide an explicit ad-blocking control when the selected component supports it, and verify that disabling it restores page behavior when filtering breaks the site.
-- [ ] Add manual download with audio/video and available quality selection, progress, cancellation, and failure recovery. Define storage ownership and the online-source/local-file identity before saving media; preserve playback position when switching to the downloaded copy.
-- [ ] Release the source browser when it is no longer needed while native playback or downloading continues. Keep sync-provider selection independent of this workflow.
+- ✅ Record the requested workflow: find a YouTube video inside Shravanam, play it through native extraction, or save audio/video for offline playback. Built-in video-ad blocking is not required. The user wants script import and an editor for page cleanup, with userscript-style metadata where supported.
+- ✅ Add desktop source navigation, HTTPS/search address entry, Back/Forward/Reload, and native Listen/Watch/Download actions. Validate selected YouTube URLs in the host and retain explicit timestamps. Do not resolve the previous source just to change the requested mode.
+- ✅ Keep website pages in a separate context, block new windows, and expose source/window controls only to the trusted local toolbar. Unit checks cover the bridge/context split; native behavior remains separate.
+- ✅ Add local `.js`/`.user.js` import and editing, script toggles, name/namespace replacement, and a previous-store recovery copy. Support HTTPS match/exclusion globs, document-start/end/idle, and `@grant none`, only in the matching top-level website page. Reject invalid syntax, privileged grants, remote requirements/resources, and scripts above 128 KiB. Full Violentmonkey APIs are not implemented. See `SOURCE_BROWSER.md`.
+- ✅ Add host-owned manual downloads, cancellation/retry, checked offline file opening, and source-position binding. Unit/process checks cover completion, early cancellation, retry, index restoration, path escape rejection, and paused local progress restoration.
+- ✅ Dispose the desktop source views/context when closed while the host retains playback and downloads. Sync-provider selection remains independent.
+- ✅ Check macOS source browsing and native handoff with the user. Check editor save, file import, toggles, rejected syntax, and previous-script preservation through the interface. A real WebView loaded example.com with a document-end script that changed its title; disabling the script restored the original title. The test script remains disabled in the development profile.
+- ✅ Check real desktop audio download with installed yt-dlp: Me at the zoo produced a checked 309,288-byte local file, opened through IINA, and restored paused at four seconds after host restart. Playback advanced after closing the source browser. Fix reopening after the last source window closes by retaining an empty hidden window while disposing its WebViews/context; native reopen checks and the lifecycle regression cover this case.
+- ✅ Keep video-download failures actionable when ffmpeg is absent. The interface reports the dependency and offers retry. The user deferred installation; real merged-video download verification remains pending.
+- [ ] Check document-start/idle scripts on real pages, YouTube same-page navigation, merged-video downloads after ffmpeg installation, and online/local position continuity. Repeat source browsing, child-view layout/focus, script timing, download recovery, and close/reopen behavior on the other desktop targets.
+- [ ] Implement Android source browsing, user-script handling, and native extraction/downloading. Standalone PWA needs a selected supported acquisition adapter; yt-dlp does not run directly in its current browser code. Do not describe either target as implemented.
 
 Verification: find a video through the embedded browser, download the selected format, disconnect, restart Shravanam, and resume the local copy at its saved position. Check browsing with ad blocking enabled and disabled. Repeat supported behavior on desktop and Android before claiming both targets work.
 

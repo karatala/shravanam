@@ -32,7 +32,7 @@ export function youtubeSource(input) {
   } catch { throw Object.assign(new Error("Invalid YouTube link"), { code: "youtube-link", mediaName: String(input).slice(0, 200) }); }
 }
 
-async function findDownloader() {
+export async function findDownloader() {
   const binary = process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp";
   const candidates = [];
   if (process.platform === "darwin") candidates.push("/Applications/IINA.app/Contents/MacOS/youtube-dl", join(homedir(), "Applications/IINA.app/Contents/MacOS/youtube-dl"));
@@ -55,15 +55,19 @@ function streamInfo(format, fallbackHeaders) {
   return { url: url.href, headers };
 }
 
-export async function resolveYouTube(source, audioOnly, signal) {
-  const executable = await findDownloader();
-  const args = ["--ignore-config", "--no-plugin-dirs", "--no-remote-components", "--no-cache-dir", "--no-playlist", "--skip-download", "--dump-single-json", "--socket-timeout", "15", "--retries", "1", "--extractor-retries", "1"];
+export function downloaderArguments() {
+  const args = ["--ignore-config", "--no-plugin-dirs", "--no-remote-components", "--no-cache-dir", "--no-playlist", "--socket-timeout", "15", "--retries", "1", "--extractor-retries", "1"];
   // Enable installed runtimes only. Never download a runtime or helper code.
   for (const runtime of ["node", "bun"]) {
     const executablePath = Bun.which(runtime);
     if (executablePath) args.push("--js-runtimes", `${runtime}:${executablePath}`);
   }
-  args.push("-f", audioOnly ? "bestaudio[protocol=https]" : "bestvideo[protocol=https]+bestaudio[protocol=https]/best[protocol=https]", "-S", "res:1080,vcodec:h264", "--", source.url);
+  return args;
+}
+
+export async function resolveYouTube(source, audioOnly, signal) {
+  const executable = await findDownloader();
+  const args = [...downloaderArguments(), "--skip-download", "--dump-single-json", "-f", audioOnly ? "bestaudio[protocol=https]" : "bestvideo[protocol=https]+bestaudio[protocol=https]/best[protocol=https]", "-S", "res:1080,vcodec:h264", "--", source.url];
   try {
     const stdout = await new Promise((resolve, reject) => {
       execFile(executable, args, { signal, timeout: 60000, killSignal: "SIGKILL", maxBuffer: 8 * 1024 * 1024, windowsHide: true }, (error, output) => {

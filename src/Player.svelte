@@ -18,7 +18,7 @@
   const desktopPlayer = () => bunPlayer ?? window.shravanamDesktop;
   const android = Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
   const nativePlayer = nativeDesktop || android;
-  let state = $state<PlaybackState>(initialPlaybackState());
+  let playback: PlaybackState = $state(initialPlaybackState());
   let interfaceError = $state<PlaybackError | null>(null);
   let mediaElement = $state<HTMLVideoElement>();
   let fileInput: HTMLInputElement;
@@ -29,9 +29,9 @@
   let ready = $state(false);
   let link = $state("");
   let openingLink = $state(false);
-  const current = $derived(state.items.find(item => item.id === state.currentId));
+  const current = $derived(playback.items.find(item => item.id === playback.currentId));
   const errorText = $derived.by(() => {
-    const failure = interfaceError ?? state.error;
+    const failure = interfaceError ?? playback.error;
     if (!failure) return "";
     const name = failure.name ? ` «${failure.name}»` : "";
     if (failure.code === "youtube-link") return text(`Cannot open link${name}. Paste an HTTPS link to one YouTube video, for example https://www.youtube.com/watch?v=dQw4w9WgXcQ. Playlist-only links and other sites are not supported yet.`, `Не удалось открыть ссылку${name}. Вставьте HTTPS-ссылку на один ролик YouTube, например https://www.youtube.com/watch?v=dQw4w9WgXcQ. Ссылки только на плейлист и другие сайты пока не поддерживаются.`);
@@ -52,19 +52,19 @@
     if (failure.code === "library-changed") return text("Library data changed in another window. Reload this page, then reopen the media file.", "Данные библиотеки изменены в другом окне. Перезагрузите страницу и откройте медиафайл снова.");
     if (failure.code === "storage") return text("Cannot save playback progress or settings. Check free space and storage access, then try again.", "Не удалось сохранить позицию или настройки. Проверьте свободное место и доступ к хранилищу, затем повторите попытку.");
     if (failure.code === "open") return text(`Cannot read${name}. Check that the file exists and is accessible, then open it again.`, `Не удалось прочитать${name}. Проверьте, что файл существует и доступен, затем откройте его снова.`);
-    if (state.recentLinks?.some(item => item.id === state.currentId)) return text("Cannot play the YouTube stream. Check the connection and press Play to get a fresh stream address and resume.", "Не удалось воспроизвести поток YouTube. Проверьте соединение и нажмите «Воспроизвести», чтобы получить новый адрес потока и продолжить.");
+    if (playback.recentLinks?.some(item => item.id === playback.currentId)) return text("Cannot play the YouTube stream. Check the connection and press Play to get a fresh stream address and resume.", "Не удалось воспроизвести поток YouTube. Проверьте соединение и нажмите «Воспроизвести», чтобы получить новый адрес потока и продолжить.");
     return text(`Cannot play${name}. Press Play to retry. If playback still fails, check the file and try another format, for example MP3.`, `Не удалось воспроизвести${name}. Нажмите «Воспроизвести» для повторной попытки. Если ошибка осталась, проверьте файл или попробуйте другой формат, например MP3.`);
   });
 
   function browserFailure(error: unknown) {
     console.error(error);
-    state = { ...state, loading: false, error: { code: error instanceof DataError && error.code === "changed" ? "library-changed" : "storage" } };
+    playback = { ...playback, loading: false, error: { code: error instanceof DataError && error.code === "changed" ? "library-changed" : "storage" } };
   }
   async function startBrowser(restore = false) {
     if (!mediaElement) return;
     const version = ++browserVersion;
     ready = false;
-    const player = await createBrowserPlayer(mediaElement, next => { if (mounted && version === browserVersion) state = next; });
+    const player = await createBrowserPlayer(mediaElement, next => { if (mounted && version === browserVersion) playback = next; });
     if (!mounted || version !== browserVersion) { await player.dispose(); return; }
     browserPlayer = player;
     if (restore) await player.restoreLast();
@@ -83,8 +83,8 @@
   async function command(action: PlaybackCommand) {
     interfaceError = null;
     try {
-      if (nativeDesktop) state = await desktopPlayer()!.playbackCommand(action);
-      else if (android) state = await androidPlayer.playbackCommand({ command: action });
+      if (nativeDesktop) playback = await desktopPlayer()!.playbackCommand(action);
+      else if (android) playback = await androidPlayer.playbackCommand({ command: action });
       else await browserPlayer?.command(action);
     } catch (error) {
       if (!nativePlayer) browserFailure(error);
@@ -98,11 +98,11 @@
         const files = await pickBrowserFiles();
         if (files === null) fileInput.click(); else addFiles(files);
       } catch (error) {
-        if (!(error instanceof DOMException && error.name === "AbortError")) { console.error(error); state = { ...state, error: { code: "open" } }; }
+        if (!(error instanceof DOMException && error.name === "AbortError")) { console.error(error); playback = { ...playback, error: { code: "open" } }; }
       }
       return;
     }
-    try { state = await (android ? androidPlayer.chooseMedia() : desktopPlayer()!.chooseMedia()); }
+    try { playback = await (android ? androidPlayer.chooseMedia() : desktopPlayer()!.chooseMedia()); }
     catch (error) { console.error(error); interfaceError = { code: error instanceof BunPlayerError ? error.code : "open" }; }
   }
   async function openLink(event: SubmitEvent) {
@@ -121,8 +121,8 @@
     const poll = async () => {
       if (!nativePlayer || polling || document.hidden || (nativeDesktop && !desktopPlayer())) return;
       polling = true;
-      try { const next = await (android ? androidPlayer.getPlaybackState() : desktopPlayer()!.getPlaybackState()); if (active) { state = next; ready = true; if (interfaceError?.code === "host") interfaceError = null; } }
-      catch (error) { if (active) { console.error(error); state = { ...state, error: { code: android ? "android-player" : bunPlayer ? "host" : "player" } }; } }
+      try { const next = await (android ? androidPlayer.getPlaybackState() : desktopPlayer()!.getPlaybackState()); if (active) { playback = next; ready = true; if (interfaceError?.code === "host") interfaceError = null; } }
+      catch (error) { if (active) { console.error(error); playback = { ...playback, error: { code: android ? "android-player" : bunPlayer ? "host" : "player" } }; } }
       finally { polling = false; }
     };
     void poll();
@@ -143,7 +143,7 @@
     };
     const nativeDrag = (event: Event) => { dragging = Boolean((event as CustomEvent<boolean>).detail); };
     const keydown = (event: KeyboardEvent) => {
-      if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || !state.currentId) return;
+      if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || !playback.currentId) return;
       if (document.querySelector('dialog[open], [role="dialog"][aria-modal="true"], [role="menu"]')) return;
       const target = event.target;
       if (target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, select, [role="slider"], [role="textbox"]'))) return;
@@ -151,7 +151,7 @@
       event.preventDefault();
       event.stopPropagation();
       if (event.code === "Space") { if (!event.repeat) void command({ type: "toggle" }); }
-      else void command({ type: "seek", time: Math.max(0, state.time + (event.code === "ArrowLeft" ? -state.backward : state.forward)) });
+      else void command({ type: "seek", time: Math.max(0, playback.time + (event.code === "ArrowLeft" ? -playback.backward : playback.forward)) });
     };
     window.addEventListener("dragenter", enter);
     window.addEventListener("dragover", over);
@@ -186,14 +186,14 @@
   {#if nativeDesktop}
     <form class="open-row playback-mode" onsubmit={openLink}>
       <label class="link-field">YouTube<input type="url" bind:value={link} required maxlength="2048" placeholder="https://www.youtube.com/watch?v=…" /></label>
-      <button type="submit" class="action" disabled={!ready || state.loading || openingLink} onpointerup={releasePointerFocus}>{text("Open link", "Открыть ссылку")}</button>
+      <button type="submit" class="action" disabled={!ready || playback.loading || openingLink} onpointerup={releasePointerFocus}>{text("Open link", "Открыть ссылку")}</button>
     </form>
-    {#if state.loading || openingLink}<p class="hint" role="status">{text("Opening media…", "Открытие медиа…")}</p>{/if}
+    {#if playback.loading || openingLink}<p class="hint" role="status">{text("Opening media…", "Открытие медиа…")}</p>{/if}
   {/if}
-  {#if nativeDesktop && typeof state.audioOnly === "boolean"}
+  {#if nativeDesktop && typeof playback.audioOnly === "boolean"}
     <div class="controls playback-mode">
-      <label>{text("Mode", "Режим")}<select disabled={!ready || state.loading} value={state.audioOnly ? "audio" : "video"} onchange={event => command({ type: "audio-only", value: event.currentTarget.value === "audio" })}><option value="audio">{text("Listen", "Слушать")}</option><option value="video">{text("Watch", "Смотреть")}</option></select></label>
-      {#if state.backend}<span class="hint">{text("Player", "Плеер")}: {state.backend === "iina" ? "IINA" : "mpv"}</span>{/if}
+      <label>{text("Mode", "Режим")}<select disabled={!ready || playback.loading} value={playback.audioOnly ? "audio" : "video"} onchange={event => command({ type: "audio-only", value: event.currentTarget.value === "audio" })}><option value="audio">{text("Listen", "Слушать")}</option><option value="video">{text("Watch", "Смотреть")}</option></select></label>
+      {#if playback.backend}<span class="hint">{text("Player", "Плеер")}: {playback.backend === "iina" ? "IINA" : "mpv"}</span>{/if}
     </div>
   {/if}
   {#if errorText}<p class="error" role="alert">{errorText}</p>{/if}
@@ -201,41 +201,41 @@
   {#if current}
     <h2>{current.name}</h2>
     {#if android && current.kind === "video"}<p class="hint">{text("Playing the audio track. Video display is not available on Android yet.", "Воспроизводится звуковая дорожка. Показ видео на Android пока не добавлен.")}</p>{/if}
-    {#if nativeDesktop && current.kind === "video"}<p class="hint">{state.audioOnly ? text("Playing only audio. Select Watch to enable video in the player window.", "Воспроизводится только звук. Выберите «Смотреть», чтобы включить видео в окне плеера.") : text("Video plays in a separate player window.", "Видео воспроизводится в отдельном окне плеера.")}</p>{/if}
+    {#if nativeDesktop && current.kind === "video"}<p class="hint">{playback.audioOnly ? text("Playing only audio. Select Watch to enable video in the player window.", "Воспроизводится только звук. Выберите «Смотреть», чтобы включить видео в окне плеера.") : text("Video plays in a separate player window.", "Видео воспроизводится в отдельном окне плеера.")}</p>{/if}
     {#if current.temporary}<p class="hint">{text("This file has temporary access. For later playback, select it with Open files to request lasting access.", "Доступ к файлу временный. Для последующего воспроизведения выберите его через «Открыть файлы», чтобы запросить постоянный доступ.")}</p>{/if}
-    {#if state.loading && !nativeDesktop}<p role="status">{text("Opening media…", "Открытие файла…")}</p>{/if}
+    {#if playback.loading && !nativeDesktop}<p role="status">{text("Opening media…", "Открытие файла…")}</p>{/if}
     <label class="timeline">
-      <span>{formatTime(state.time)} / {formatTime(state.duration)}</span>
-      <input aria-label={text("Playback position", "Позиция воспроизведения")} type="range" min="0" max={state.duration || 1} step="0.1" value={state.time} disabled={!state.duration || state.loading} onchange={event => command({ type: "seek", time: Number(event.currentTarget.value) })} />
+      <span>{formatTime(playback.time)} / {formatTime(playback.duration)}</span>
+      <input aria-label={text("Playback position", "Позиция воспроизведения")} type="range" min="0" max={playback.duration || 1} step="0.1" value={playback.time} disabled={!playback.duration || playback.loading} onchange={event => command({ type: "seek", time: Number(event.currentTarget.value) })} />
     </label>
     <div class="controls">
-      <button type="button" class="action" disabled={state.loading} onclick={() => command({ type: "seek", time: Math.max(0, state.time - state.backward) })} onpointerup={releasePointerFocus}>−{state.backward} {text("s", "с")}</button>
-      <button type="button" class="action primary" disabled={state.loading} onclick={() => command({ type: "toggle" })} onpointerup={releasePointerFocus}>{state.paused ? text("Play", "Воспроизвести") : text("Pause", "Пауза")}</button>
-      <button type="button" class="action" disabled={state.loading} onclick={() => command({ type: "seek", time: state.time + state.forward })} onpointerup={releasePointerFocus}>+{state.forward} {text("s", "с")}</button>
-      <label>{text("Speed", "Скорость")}<select value={state.speed} onchange={event => command({ type: "speed", value: Number(event.currentTarget.value) })}>{#each [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3] as speed}<option value={speed}>{speed}×</option>{/each}</select></label>
+      <button type="button" class="action" disabled={playback.loading} onclick={() => command({ type: "seek", time: Math.max(0, playback.time - playback.backward) })} onpointerup={releasePointerFocus}>−{playback.backward} {text("s", "с")}</button>
+      <button type="button" class="action primary" disabled={playback.loading} onclick={() => command({ type: "toggle" })} onpointerup={releasePointerFocus}>{playback.paused ? text("Play", "Воспроизвести") : text("Pause", "Пауза")}</button>
+      <button type="button" class="action" disabled={playback.loading} onclick={() => command({ type: "seek", time: playback.time + playback.forward })} onpointerup={releasePointerFocus}>+{playback.forward} {text("s", "с")}</button>
+      <label>{text("Speed", "Скорость")}<select value={playback.speed} onchange={event => command({ type: "speed", value: Number(event.currentTarget.value) })}>{#each [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3] as speed}<option value={speed}>{speed}×</option>{/each}</select></label>
     </div>
   {/if}
   <details>
     <summary>{text("Seek intervals", "Интервалы перемотки")}</summary>
     <div class="intervals">
-      <label>{text("Backward, seconds", "Назад, секунд")}<input type="number" required min="1" max="600" step="1" value={state.backward} onchange={event => { if (event.currentTarget.reportValidity()) void command({ type: "intervals", backward: Number(event.currentTarget.value), forward: state.forward }); }} /></label>
-      <label>{text("Forward, seconds", "Вперёд, секунд")}<input type="number" required min="1" max="600" step="1" value={state.forward} onchange={event => { if (event.currentTarget.reportValidity()) void command({ type: "intervals", backward: state.backward, forward: Number(event.currentTarget.value) }); }} /></label>
+      <label>{text("Backward, seconds", "Назад, секунд")}<input type="number" required min="1" max="600" step="1" value={playback.backward} onchange={event => { if (event.currentTarget.reportValidity()) void command({ type: "intervals", backward: Number(event.currentTarget.value), forward: playback.forward }); }} /></label>
+      <label>{text("Forward, seconds", "Вперёд, секунд")}<input type="number" required min="1" max="600" step="1" value={playback.forward} onchange={event => { if (event.currentTarget.reportValidity()) void command({ type: "intervals", backward: playback.backward, forward: Number(event.currentTarget.value) }); }} /></label>
     </div>
   </details>
-  {#if state.items.length}
-    <ul>{#each state.items as item (item.id)}<li><button type="button" class="file" aria-current={item.id === state.currentId ? "true" : undefined} onclick={() => command({ type: "select", id: item.id })} onpointerup={releasePointerFocus}>{item.name}</button></li>{/each}</ul>
+  {#if playback.items.length}
+    <ul>{#each playback.items as item (item.id)}<li><button type="button" class="file" aria-current={item.id === playback.currentId ? "true" : undefined} onclick={() => command({ type: "select", id: item.id })} onpointerup={releasePointerFocus}>{item.name}</button></li>{/each}</ul>
   {/if}
-  {#if state.recent?.length}
+  {#if playback.recent?.length}
     <details>
       <summary>{text("Recent files", "Последние файлы")}</summary>
       <p class="hint">{text("The last file opens paused on startup when file access is available.", "При запуске последний файл открывается на паузе, если доступ к нему сохранён.")}</p>
-      <ul>{#each state.recent as item (item.id)}<li><button type="button" class="file" disabled={!ready} onclick={() => command({ type: "recent", id: item.id })} onpointerup={releasePointerFocus}>{item.name}{item.temporary ? text(" · access may need renewal", " · может потребоваться доступ заново") : ""}</button></li>{/each}</ul>
+      <ul>{#each playback.recent as item (item.id)}<li><button type="button" class="file" disabled={!ready} onclick={() => command({ type: "recent", id: item.id })} onpointerup={releasePointerFocus}>{item.name}{item.temporary ? text(" · access may need renewal", " · может потребоваться доступ заново") : ""}</button></li>{/each}</ul>
     </details>
   {/if}
-  {#if nativeDesktop && state.recentLinks?.length}
+  {#if nativeDesktop && playback.recentLinks?.length}
     <details>
       <summary>{text("Recent YouTube links", "Последние ссылки YouTube")}</summary>
-      <ul>{#each state.recentLinks as item (item.id)}<li><button type="button" class="file" disabled={!ready || state.loading} onclick={() => command({ type: "select", id: item.id })} onpointerup={releasePointerFocus}>{item.name}</button></li>{/each}</ul>
+      <ul>{#each playback.recentLinks as item (item.id)}<li><button type="button" class="file" disabled={!ready || playback.loading} onclick={() => command({ type: "select", id: item.id })} onpointerup={releasePointerFocus}>{item.name}</button></li>{/each}</ul>
     </details>
   {/if}
   {#if !nativeDesktop && !Capacitor.isNativePlatform()}

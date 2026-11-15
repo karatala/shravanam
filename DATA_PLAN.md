@@ -4,6 +4,8 @@ This plan separates implemented source from remaining design and verification. T
 
 Default `dev` now uses Bun's native playback store in `Shravanam-dev`, shared in implementation with desktop `Shravanam/playback.json`. The existing IndexedDB adapter and archive UI are available through `dev:web` and standalone PWA output. These stores are still separate; switching development modes does not migrate or erase them. Native adapters and native export/import remain the next data task. Desktop YouTube playback stores canonical links, titles, and source-keyed positions in playback.json. Signed stream addresses/headers are transient. These native source keys are not shared-library IDs; migration and source-to-record mapping remain pending.
 
+Desktop source adds `downloads.json`, private downloaded media, `source-scripts.json`, and a separate website profile. `playback.json` sourceBindings associates downloaded file identities with the existing YouTube progress key, so local/offline restoration and online playback share position. This does not implement shared record identity or native archive support. Current browser archives exclude these native files, scripts, website sessions, and download records; native backup/migration remains pending.
+
 ## Confirmed scope
 
 - ✅ Keep the user's library data portable: watched/listened history, positions, completion, media/source metadata, descriptions, imported comments, subtitles, transcripts, chapters, bookmarks, personal notes, playlists, and relevant settings.

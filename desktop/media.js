@@ -16,6 +16,7 @@ export async function createMediaPlayer(profile) {
   let serial = Promise.resolve();
   let closing = false;
   let positions = {};
+  let sourceBindings = {};
   let recent = [];
   let openedExplicitly = false;
   let audioOnly = true;
@@ -27,6 +28,7 @@ export async function createMediaPlayer(profile) {
     state.forward = settings.forward;
     if (typeof settings.audioOnly === "boolean") audioOnly = settings.audioOnly;
     if (settings.positions && typeof settings.positions === "object" && !Array.isArray(settings.positions)) positions = Object.fromEntries(Object.entries(settings.positions).filter(([id, time]) => /^[a-f0-9]{64}$/.test(id) && Number.isFinite(time) && time >= 0));
+    if (settings.sourceBindings && typeof settings.sourceBindings === "object" && !Array.isArray(settings.sourceBindings)) sourceBindings = Object.fromEntries(Object.entries(settings.sourceBindings).filter(([id, sourceId]) => /^[a-f0-9]{64}$/.test(id) && typeof sourceId === "string" && /^[a-f0-9]{64}$/.test(sourceId)));
     if (Array.isArray(settings.recent)) recent = settings.recent.filter(entry => entry && /^[a-f0-9]{64}$/.test(entry.id) && typeof entry.path === "string" && isAbsolute(entry.path) && !entry.path.includes("\0") && typeof entry.name === "string" && mediaKind(entry.name) === entry.kind).slice(0, 20);
     for (const saved of Array.isArray(settings.links) ? settings.links.slice(0, 20) : []) {
       try {
@@ -42,7 +44,7 @@ export async function createMediaPlayer(profile) {
   });
   player.state.speed = state.speed;
   player.audioOnly = audioOnly;
-  const snapshot = () => ({ ...state, ...(currentId ? player.state : {}), loading: resolving || player.state.loading, currentId, audioOnly: player.audioOnly, backend: player.backend, items: [...state.items], recent: recent.map(({ id, name, kind }) => ({ id, name, kind })), recentLinks: [...links.values()].reverse().map(({ id, name, kind }) => ({ id, name, kind })) });
+  const snapshot = () => ({ ...state, ...(currentId ? player.state : {}), loading: resolving || player.state.loading, currentId, audioOnly: player.audioOnly, backend: player.backend, items: [...state.items], recent: recent.map(({ id, name, kind, title }) => ({ id, name: typeof title === "string" ? title : name, kind })), recentLinks: [...links.values()].reverse().map(({ id, name, kind }) => ({ id, name, kind })) });
   function queue(action) {
     const next = serial.then(async () => { if (!closing) await action(); }).catch(error => {
       console.error("Desktop media action failed", error);
@@ -62,7 +64,8 @@ export async function createMediaPlayer(profile) {
     return { id, path, name, kind };
   }
   function register(entry) {
-    if (!paths.has(entry.id)) { paths.set(entry.id, entry.path); state.items.push({ id: entry.id, name: entry.name, kind: entry.kind }); }
+    if (!paths.has(entry.id)) { paths.set(entry.id, entry.path); state.items.push({ id: entry.id, name: entry.title ?? entry.name, kind: entry.kind }); }
+    else if (entry.title) { const item = state.items.find(item => item.id === entry.id); if (item) item.name = entry.title; }
   }
   function remember(entries) {
     const ordered = [];
@@ -80,10 +83,12 @@ export async function createMediaPlayer(profile) {
     try { entry = await inspectPath(path); }
     catch (error) { throw Object.assign(error, { code: "open", mediaName: basename(path) }); }
     if (entry.id !== id) throw Object.assign(new Error("File changed"), { code: "changed-file", mediaName: entry.name });
+    const title = recent.find(item => item.id === id)?.title;
+    if (typeof title === "string" && title.length <= 300) { entry.title = title; register(entry); }
     state.error = null;
     await saveSettings();
     currentId = id;
-    await player.load(path, state.speed, positions[id] ?? 0, autoplay);
+    await player.load(path, state.speed, positions[sourceBindings[id] ?? id] ?? 0, autoplay);
     remember([entry]);
     await saveSettings();
   }
@@ -119,13 +124,13 @@ export async function createMediaPlayer(profile) {
     await select(id, autoplay);
   }
   function rememberPosition() {
-    if (currentId && player.loaded && !player.state.loading) positions[currentId] = player.state.duration > 0 && player.state.time >= player.state.duration ? 0 : player.state.time;
+    if (currentId && player.loaded && !player.state.loading) positions[sourceBindings[currentId] ?? currentId] = player.state.duration > 0 && player.state.time >= player.state.duration ? 0 : player.state.time;
   }
   async function saveSettings() {
     rememberPosition();
     const temporary = `${settingsPath}.pending`;
     try {
-      await writeFile(temporary, JSON.stringify({ speed: state.speed, backward: state.backward, forward: state.forward, audioOnly: player.audioOnly, positions, recent, links: [...links.values()] }), { mode: 0o600 });
+      await writeFile(temporary, JSON.stringify({ speed: state.speed, backward: state.backward, forward: state.forward, audioOnly: player.audioOnly, positions, sourceBindings, recent, links: [...links.values()] }), { mode: 0o600 });
       await rename(temporary, settingsPath);
       if (state.error?.code === "storage") state.error = null;
     } catch (error) { console.error(error); state.error = { code: "storage" }; }
@@ -140,6 +145,21 @@ export async function createMediaPlayer(profile) {
   }, 5000);
   return {
     snapshot,
+    openDownloaded(path, url, audioOnly, title) {
+      openedExplicitly = true;
+      return queue(async () => {
+        const source = youtubeSource(url);
+        const entry = await inspectPath(path);
+        if (typeof title === "string") entry.title = title.slice(0, 300);
+        await saveSettings();
+        register(entry);
+        remember([entry]);
+        sourceBindings[entry.id] = source.id;
+        positions[source.id] ??= positions[entry.id] ?? 0;
+        await player.setAudioOnly(audioOnly);
+        await select(entry.id);
+      });
+    },
     restoreLast() { return queue(async () => { if (!openedExplicitly && !currentId && recent.length) await openRecent(recent[0].id, false); }); },
     openPaths(incoming) {
       if (incoming.length) openedExplicitly = true;
@@ -170,7 +190,7 @@ export async function createMediaPlayer(profile) {
       return queue(async () => {
         if (command.type === "open-youtube") {
           const source = youtubeSource(command.url);
-          await selectLink(source, true, source.start);
+          await selectLink(source, true, source.start, command.audioOnly ?? player.audioOnly);
         }
         if (command.type === "recent") await openRecent(command.id, true);
         if (command.type === "select") await select(command.id);

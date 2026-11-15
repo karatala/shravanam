@@ -2,6 +2,8 @@ interface Window {
   shravanamDesktopHost?: boolean;
   shravanamBunHost?: { token: string };
   shravanamOfflineEnabled?: boolean;
+  shravanamSourceTools?: boolean;
+  shravanamSources?: import("./sources").SourceBridge;
   showStartupError: () => void;
   shravanamDesktop?: {
     minimizeWindow: () => Promise<null>;

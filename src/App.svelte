@@ -3,10 +3,12 @@
   import { Capacitor } from "@capacitor/core";
   import { releasePointerFocus } from "./pointer-input";
   import Player from "./Player.svelte";
+  import SourcesPanel from "./SourcesPanel.svelte";
+  import SourceTools from "./SourceTools.svelte";
 
   const russian = document.documentElement.lang === "ru";
   const text = (english: string, translation: string) => russian ? translation : english;
-  const desktop = Boolean(window.shravanamDesktopHost);
+  const desktop = Boolean(window.shravanamDesktopHost || window.shravanamSourceTools);
   const bunHost = Boolean(window.shravanamBunHost);
   const native = desktop || bunHost || Capacitor.isNativePlatform();
   let offlineStatus = $state(bunHost ? text("Local player controls. Keep the application terminal running.", "Управление локальным плеером. Оставьте терминал приложения запущенным.") : native ? text("Application is stored on this device", "Приложение хранится на этом устройстве") : text("Preparing application for offline use…", "Подготовка приложения к работе без сети…"));
@@ -56,14 +58,19 @@
     </div>
   {/if}
 </header>
+{#if window.shravanamSourceTools}
+  <SourceTools />
+{:else}
 <main>
   <h1>{text("Your audiobooks", "Ваши аудиокниги")}</h1>
   <Player />
+  {#if desktop || bunHost}<SourcesPanel />{/if}
   <div class="status" role="status">
     <span>{online ? text("Online", "Есть подключение к сети") : text("Offline", "Нет подключения к сети")}</span>
     <span>{offlineStatus}</span>
   </div>
 </main>
+{/if}
 
 <style>
   main { max-width: 760px; margin: 0 auto; padding: 64px max(24px, env(safe-area-inset-right)) max(32px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left)); }
