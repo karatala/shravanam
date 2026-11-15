@@ -42,8 +42,11 @@ export function createDesktopTray({ app, icon, getPlaybackState, command, openWi
     if (disposed) return;
     const id = event.customMenuEvent?.id;
     if (!id?.startsWith("shravanam-")) return;
+    // Native menu callbacks run inside pumpEvents; release its Application borrow first.
+    await new Promise(resolve => setImmediate(resolve));
+    if (disposed) return;
     try {
-      if (id === "shravanam-open") openWindow();
+      if (id === "shravanam-open") await openWindow();
       else if (id === "shravanam-quit") await quit();
       else {
         const state = await getPlaybackState();
@@ -55,7 +58,13 @@ export function createDesktopTray({ app, icon, getPlaybackState, command, openWi
         if (result?.error) openWindow();
         await update();
       }
-    } catch (error) { console.error("Desktop tray action failed", error); openWindow(); }
+    } catch (error) {
+      console.error("Desktop tray action failed", error);
+      if (id !== "shravanam-open") {
+        try { await openWindow(); }
+        catch (failure) { console.error("Could not restore the player window", failure); }
+      }
+    }
   }
   app.on("custom-menu-click", menuClicked);
   const ready = app.whenReady({ autoRun: false }).then(async () => {

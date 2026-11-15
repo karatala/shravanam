@@ -2,14 +2,14 @@ import { expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import { createDesktopTray } from "../desktop/tray.js";
 
-function setup(fail = false) {
+function setup(fail = false, onOpen = () => {}) {
   const app = new EventEmitter();
   const nativeTray = { disposed: false, menu: null, tooltip: "", failMenu: false, isDisposed() { return this.disposed; }, dispose() { this.disposed = true; }, setTooltip(value) { this.tooltip = value; }, setMenu(value) { if (this.failMenu) throw new Error("Tray unavailable"); this.menu = value; } };
   const state = { items: [{ id: "book-one", name: "Book" }], currentId: "book-one", paused: true, loading: false, time: 50, duration: 60, backward: 17, forward: 43, error: null };
   const calls = { commands: [], open: 0, quit: 0, unavailable: 0 };
   app.whenReady = () => Promise.resolve();
   app.createTrayIcon = () => { if (fail) throw new Error("Tray unavailable"); return nativeTray; };
-  const tray = createDesktopTray({ app, icon: Buffer.from([]), getPlaybackState: async () => state, command: async command => { calls.commands.push(command); if (command.type === "toggle") state.paused = !state.paused; if (command.type === "seek") state.time = command.time; return state; }, openWindow() { calls.open++; }, quit() { calls.quit++; }, onUnavailable() { calls.unavailable++; } });
+  const tray = createDesktopTray({ app, icon: Buffer.from([]), getPlaybackState: async () => state, command: async command => { calls.commands.push(command); if (command.type === "toggle") state.paused = !state.paused; if (command.type === "seek") state.time = command.time; return state; }, openWindow() { calls.open++; onOpen(); }, quit() { calls.quit++; }, onUnavailable() { calls.unavailable++; } });
   const click = async id => { app.emit("custom-menu-click", { customMenuEvent: { id } }); await new Promise(resolve => setImmediate(resolve)); };
   return { app, nativeTray, state, calls, tray, click };
 }
@@ -61,4 +61,34 @@ test("tray disposal removes native menu handlers and blocks late actions", async
   expect(await tray.ready()).toBe(false);
   await click("shravanam-toggle");
   expect(calls.commands).toEqual([]);
+});
+
+test("tray window actions run after native dispatch and are cancelled when the tray closes", async () => {
+  const { app, calls, tray } = setup();
+  try {
+    await tray.ready();
+    app.emit("custom-menu-click", { customMenuEvent: { id: "shravanam-open" } });
+    expect(calls.open).toBe(0);
+    await new Promise(resolve => setImmediate(resolve));
+    expect(calls.open).toBe(1);
+    app.emit("custom-menu-click", { customMenuEvent: { id: "shravanam-quit" } });
+    expect(calls.quit).toBe(0);
+    await new Promise(resolve => setImmediate(resolve));
+    expect(calls.quit).toBe(1);
+    app.emit("custom-menu-click", { customMenuEvent: { id: "shravanam-open" } });
+    tray.dispose();
+    await new Promise(resolve => setImmediate(resolve));
+    expect(calls.open).toBe(1);
+  } finally { tray.dispose(); }
+});
+
+test("a failed tray Open is caught without a second attempt or unhandled rejection", async () => {
+  const { calls, tray, click } = setup(false, () => { throw new Error("Cannot create the window"); });
+  try {
+    await tray.ready();
+    await click("shravanam-open");
+    expect(calls.open).toBe(1);
+    await new Promise(resolve => setImmediate(resolve));
+    expect(calls.open).toBe(1);
+  } finally { tray.dispose(); }
 });
