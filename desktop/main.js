@@ -5,6 +5,8 @@ import { createMediaPlayer } from "./media.js";
 import { mediaExtensions } from "../src/playback.ts";
 import { desktopProfile } from "./profile.js";
 import { createSourceBrowser } from "./source-browser.js";
+import { createDesktopTray } from "./tray.js";
+import { libraryFailure, validLibraryRequest } from "../src/library-client.ts";
 
 export async function runDesktop(assets) {
   const origin = "http://127.0.0.1:47870";
@@ -66,33 +68,52 @@ export async function runDesktop(assets) {
     const icon = await Bun.file(assets["/icons/icon-512.png"]).arrayBuffer();
     if (process.platform === "darwin") app.setDockIcon(Buffer.from(icon));
     else window.setWindowIcon(Buffer.from(icon));
-    focusWindow = () => { window.setMinimized(false); window.focus(); };
-    const webContext = app.createWebContext({ dataDirectory: join(profile, "webview") });
-    const webview = window.createWebview({ url: origin, webContext, nativeFileDrop: true, navigationHandler: url => new URL(url).origin === origin, newWindowHandler: () => false });
     const mediaReady = createMediaPlayer(profile);
     const sourcesReady = mediaReady.then(media => createSourceBrowser({ profile, origin, media, getApplication: async () => app }));
     void sourcesReady.catch(() => {});
     let closing = false;
+    let content = null;
+    let backgroundTimer;
+    let tray;
+    function disposeContent() {
+      const previous = content;
+      content = null;
+      if (!previous) return;
+      try { previous.webview.dispose(); }
+      finally { previous.context.dispose(); }
+    }
     async function requestWindowClose() {
       if (closing) return null;
       closing = true;
+      clearImmediate(backgroundTimer);
+      tray?.dispose();
       try { await (await sourcesReady).close(); }
       catch (error) { console.error("Could not close sources", error); }
       try { await (await mediaReady).close(); }
       catch (error) { console.error("Could not save playback on close", error); }
-      finally { window.dispose(); server.stop(true); app.exit(); }
+      finally {
+        try { disposeContent(); } catch (error) { console.error("Could not close the interface", error); }
+        window.dispose(); server.stop(true); app.exit();
+      }
       return null;
     }
-    window.on("close", event => { event.preventDefault(); void requestWindowClose(); });
-    acceptPaths = paths => { void mediaReady.then(media => media.openPaths(paths)).catch(error => console.error("Could not open media", error)); };
-    const publishDrag = active => webview.evaluateScript(`window.dispatchEvent(new CustomEvent('shravanam-file-drag', { detail: ${active} }))`);
-    webview.on("drag-enter", () => publishDrag(true));
-    webview.on("drag-leave", () => publishDrag(false));
-    webview.on("drag-drop", event => { publishDrag(false); acceptPaths(event.paths); });
-    webview.expose("shravanamDesktop", {
+    async function backgroundWindow(language) {
+      if ((language !== undefined && !["en", "ru"].includes(language)) || closing || !await tray.ready(language)) throw new Error("Cannot run in the background: the system tray is unavailable. Keep the player window open or minimize it. / Фоновый режим недоступен: не удалось создать значок в трее. Оставьте окно плеера открытым или сверните его.");
+      clearImmediate(backgroundTimer);
+      backgroundTimer = setImmediate(() => {
+        if (closing) return;
+        if (!tray.available()) { focusWindow(); return; }
+        window.hide();
+        try { disposeContent(); }
+        catch (error) { console.error("Could not unload the interface", error); focusWindow(); }
+      });
+      return null;
+    }
+    const desktopBridge = {
       minimizeWindow() { window.setMinimized(true); return null; },
       toggleMaximized() { window.setMaximized(!window.isMaximized()); return null; },
       requestWindowClose,
+      backgroundWindow,
       async chooseMedia() {
         const paths = window.openFileDialog({ multiple: true, title: "Open media / Открыть файлы", filters: [{ name: "Audio / Video", extensions: mediaExtensions }] });
         const media = await mediaReady;
@@ -100,8 +121,48 @@ export async function runDesktop(assets) {
       },
       async getPlaybackState() { return (await mediaReady).snapshot(); },
       async playbackCommand(command) { return (await mediaReady).command(command); },
+      async sleepCommand(command) { return (await mediaReady).sleepCommand(command); },
+      async libraryRequest(request) {
+        if (!validLibraryRequest(request)) throw new Error(libraryFailure(null));
+        try { return await (await mediaReady).libraryRequest(request); } catch (error) { throw new Error(libraryFailure(error)); }
+      },
+    };
+    function createContent() {
+      if (content || closing) return;
+      const context = app.createWebContext({ dataDirectory: join(profile, "webview") });
+      let webview;
+      try {
+        const size = window.getInnerSize(true);
+        webview = window.createWebview({ url: origin, child: true, x: 0, y: 0, width: size.width, height: size.height, webContext: context, nativeFileDrop: true, navigationHandler: url => { try { return new URL(url).origin === origin; } catch { return false; } }, newWindowHandler: () => false });
+        const selected = { webview, context };
+        content = selected;
+        const publishDrag = active => { if (content === selected) webview.evaluateScript(`window.dispatchEvent(new CustomEvent('shravanam-file-drag', { detail: ${active} }))`); };
+        webview.on("drag-enter", () => publishDrag(true));
+        webview.on("drag-leave", () => publishDrag(false));
+        webview.on("drag-drop", event => { publishDrag(false); acceptPaths(event.paths); });
+        webview.expose("shravanamDesktop", desktopBridge);
+        webview.expose("shravanamSources", { async getState() { return (await sourcesReady).bridge.getState(); }, async command(command) { return (await sourcesReady).bridge.command(command); } });
+      } catch (error) {
+        content = null;
+        try { webview?.dispose(); } finally { context.dispose(); }
+        throw error;
+      }
+    }
+    focusWindow = () => {
+      if (closing) return;
+      clearImmediate(backgroundTimer);
+      createContent();
+      window.setMinimized(false); window.show(); window.focus();
+    };
+    window.on("resize", () => {
+      if (!content) return;
+      const size = window.getInnerSize(true);
+      content.webview.setBounds({ x: 0, y: 0, width: size.width, height: size.height });
     });
-    webview.expose("shravanamSources", { async getState() { return (await sourcesReady).bridge.getState(); }, async command(command) { return (await sourcesReady).bridge.command(command); } });
+    window.on("close", event => { event.preventDefault(); void requestWindowClose(); });
+    acceptPaths = paths => { void mediaReady.then(media => media.openPaths(paths)).catch(error => console.error("Could not open media", error)); };
+    tray = createDesktopTray({ app, icon: Buffer.from(icon), getPlaybackState: async () => (await mediaReady).snapshot(), command: async command => (await mediaReady).command(command), openWindow: focusWindow, quit: requestWindowClose, onUnavailable: () => { if (!closing && !content) focusWindow(); } });
+    createContent();
     for (const paths of pendingBatches) if (paths.length) acceptPaths(paths);
     if (!pendingBatches.some(paths => paths.length)) void mediaReady.then(media => media.restoreLast()).catch(error => console.error("Could not restore last media", error));
     app.on("application-close-requested", () => { void requestWindowClose(); });

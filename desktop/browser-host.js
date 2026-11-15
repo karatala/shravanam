@@ -6,6 +6,8 @@ import { chooseSystemMedia } from "./system-file-picker.js";
 import { validPlaybackCommand } from "../src/playback.ts";
 import { validSourceCommand, sourceFailure } from "../src/sources.ts";
 import { createSourceBrowser } from "./source-browser.js";
+import { libraryFailure, validLibraryRequest } from "../src/library-client.ts";
+import { validSleepCommand } from "../src/sleep.ts";
 
 export function createBrowserHost(origin) {
   const token = randomBytes(32).toString("hex");
@@ -41,7 +43,12 @@ export function createBrowserHost(origin) {
       }
       try {
         const media = await mediaReady;
+        if (body.method === "library" && validLibraryRequest(body.request)) {
+          try { return json(await media.libraryRequest(body.request)); }
+          catch (error) { console.error("Library action failed", error); return json({ error: libraryFailure(error) }, 400); }
+        }
         if (body.method === "state") return json(media.snapshot());
+        if (body.method === "sleep" && validSleepCommand(body.command)) return json(await media.sleepCommand(body.command));
         if (body.method === "command" && validPlaybackCommand(body.command)) return json(await media.command(body.command));
         if (body.method === "choose") {
           if (choosing) return json({ error: "picker" }, 409);

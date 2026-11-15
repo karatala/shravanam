@@ -14,6 +14,7 @@ export type PlaybackState = {
   recent: MediaItem[];
   recentLinks?: MediaItem[];
   currentId: string | null;
+  libraryMediaId?: string | null;
   time: number;
   duration: number;
   paused: boolean;
@@ -23,6 +24,7 @@ export type PlaybackState = {
   forward: number;
   audioOnly?: boolean;
   backend?: "mpv" | "iina" | null;
+  sleep?: import("./sleep").SleepState;
   error: PlaybackError | null;
 };
 export type PlaybackCommand = { type: "select" | "recent"; id: string } | { type: "toggle" } | { type: "seek"; time: number } | { type: "speed"; value: number } | { type: "intervals"; backward: number; forward: number } | { type: "audio-only"; value: boolean } | { type: "open-youtube"; url: string; audioOnly?: boolean };

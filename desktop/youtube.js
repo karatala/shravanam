@@ -83,7 +83,7 @@ export async function resolveYouTube(source, audioOnly, signal) {
     if (!primary) throw new Error("No usable media stream");
     const audio = !audioOnly && primary.acodec === "none" ? formats.find(format => format.acodec && format.acodec !== "none") : null;
     if (!audioOnly && primary.acodec === "none" && !audio) throw new Error("No audio stream");
-    return { ...streamInfo(primary, info.http_headers), audio: audio ? streamInfo(audio, info.http_headers) : null, title: typeof info.title === "string" ? info.title.slice(0, 300) : source.videoId };
+    return { ...streamInfo(primary, info.http_headers), audio: audio ? streamInfo(audio, info.http_headers) : null, title: typeof info.title === "string" ? info.title.slice(0, 300) : source.videoId, chapters: Array.isArray(info.chapters) ? info.chapters.slice(0, 2000) : [], description: typeof info.description === "string" ? info.description.slice(0, 1000000) : "" };
   } catch (error) {
     throw Object.assign(new Error("Cannot open YouTube media"), { code: error.code === "youtube-live" ? error.code : "youtube", mediaName: source.url });
   }

@@ -10,7 +10,7 @@ export class MpvPlayer {
   constructor(profile, onChange) {
     this.profile = profile;
     this.onChange = onChange;
-    this.state = { time: 0, duration: 0, paused: true, speed: 1, loading: false };
+    this.state = { time: 0, duration: 0, paused: true, speed: 1, loading: false, volume: 100 };
     this.pending = new Map();
     this.sequence = 0;
     this.socket = null;
@@ -132,7 +132,7 @@ export class MpvPlayer {
           await loaded;
         } finally { clearTimeout(timer); this.waitForLoad = null; }
       }
-      for (const [idx, name] of ["time-pos", "duration", "pause", "speed", "eof-reached"].entries()) await this.request(["observe_property", idx + 1, name]);
+      for (const [idx, name] of ["time-pos", "duration", "pause", "speed", "eof-reached", "volume"].entries()) await this.request(["observe_property", idx + 1, name]);
       await this.setAudioOnly(this.audioOnly);
     } catch (error) {
       // Clear the failed process and socket before starting another backend.
@@ -163,6 +163,7 @@ export class MpvPlayer {
       if (message.name === "duration" && Number.isFinite(message.data)) this.state.duration = Math.max(0, message.data);
       if (message.name === "pause" && typeof message.data === "boolean") this.state.paused = message.data;
       if (message.name === "speed" && Number.isFinite(message.data)) this.state.speed = message.data;
+      if (message.name === "volume" && Number.isFinite(message.data)) this.state.volume = Math.max(0, Math.min(100, message.data));
       if (message.name === "eof-reached" && typeof message.data === "boolean") this.ended = message.data;
       // Late position and pause updates must not erase a completed file.
       if (this.ended) { this.state.time = this.state.duration; this.state.paused = true; }
@@ -231,7 +232,7 @@ export class MpvPlayer {
     this.loaded = false;
     this.ended = false;
     await this.start();
-    this.state = { time: 0, duration: 0, paused: true, loading: true, speed };
+    this.state = { time: 0, duration: 0, paused: true, loading: true, speed, volume: this.state.volume ?? 100 };
     const loaded = new Promise((resolve, reject) => { this.waitForLoad = { path, resolve, reject }; });
     // Observe rejection immediately, including a process exit before loadfile replies.
     void loaded.catch(() => {});

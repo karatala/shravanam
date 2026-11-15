@@ -39,6 +39,7 @@ test("downloaded copies share source progress and restore locally without a netw
     await writeFile(join(profile, "playback.json"), JSON.stringify(saved));
     media = await createMediaPlayer(profile);
     await media.openDownloaded(path, source.url, true, "Saved source title");
-    expect(loads[2].position).toBe(17);
+    // Once migration is complete, the shared library owns progress. Retained legacy data cannot replace it.
+    expect(loads[2].position).toBe(42);
   } finally { await media?.close(); loading.mockRestore(); }
 });

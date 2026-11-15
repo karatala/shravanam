@@ -9,8 +9,11 @@ interface Window {
     minimizeWindow: () => Promise<null>;
     toggleMaximized: () => Promise<null>;
     requestWindowClose: () => Promise<null>;
+    backgroundWindow: (language?: "en" | "ru") => Promise<null>;
     chooseMedia: () => Promise<import("./playback").PlaybackState>;
     getPlaybackState: () => Promise<import("./playback").PlaybackState>;
     playbackCommand: (command: import("./playback").PlaybackCommand) => Promise<import("./playback").PlaybackState>;
+    libraryRequest: (request: import("./library-client").LibraryRequest) => Promise<any>;
+    sleepCommand: (command: import("./sleep").SleepCommand) => Promise<import("./playback").PlaybackState>;
   };
 }

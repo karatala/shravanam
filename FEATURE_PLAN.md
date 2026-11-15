@@ -1,6 +1,6 @@
 # Shravanam feature plan
 
-This document tracks implemented source and remaining work. ✅ marks completed source or a recorded decision; platform verification is listed separately and is not implied. `TODOS.md` retains the original Russian feature text. Values in the sleep-timer example are examples, not approved defaults. Resolve open choices before implementing their behavior. The proposed stage order can change.
+This document tracks implemented source and remaining work. ✅ marks completed source or a recorded decision; platform verification is listed separately and is not implied. `TODOS.md` retains the original Russian feature text. Desktop timer behavior and the first manual WebDAV adapter are approved below. Android and standalone PWA adapters for the new library, timer, and synchronization controls remain pending.
 
 ## Current scope
 
@@ -11,7 +11,7 @@ This document tracks implemented source and remaining work. ✅ marks completed 
 - [ ] Design a separate `karatala-ui` library from common needs in several projects. This is deferred and is not part of the player implementation.
 - ✅ Add GitHub Actions source based on Rachana for web checks/builds, Windows/Linux/macOS builds, and an Android debug APK, with downloadable artifacts.
 - [ ] Verify the first GitHub CI run. Release publication, Pages, and iOS CI remain separate setup work.
-- ✅ Record synchronization, export/import, and backup/restore requirements in `DATA_PLAN.md`. Browser persistence now uses IndexedDB; native storage and remote destinations remain open.
+- ✅ Record synchronization, export/import, and backup/restore requirements in `DATA_PLAN.md`. Browser persistence uses IndexedDB. Desktop now has a shared-library adapter and manual WebDAV synchronization; Android migration and other destinations remain pending.
 - ✅ Add the shared record model, JSON archive v1, browser migration, export/import preview, conflict preservation, and local recovery. Runtime verification remains pending.
 - ✅ Add a separate 20-file recent list and paused restoration of the last file in browser, desktop, and Android source. Browser restoration uses supported file handles and existing permission; otherwise it asks for access or reselection. Runtime verification remains pending.
 - ✅ Make default browser development a control surface for Bun-owned files and the shared mpv player. Add authenticated loopback commands, system file selection based on Rachana, independent development profile, and explicit `dev:web` mode for PWA checks.
@@ -23,6 +23,9 @@ This document tracks implemented source and remaining work. ✅ marks completed 
 - ✅ Check the native macOS file dialog with user-operated Cancel and Open. The selected MP3 started and could be paused. The native profile retained its position separately from browser development.
 - ✅ Check native macOS interface controls with the user after restart. The restored file appeared paused near 20 seconds. After clicking the forward button, Space started and paused playback, and Left sought backward. Maximizing and returning to the normal window size worked.
 - ✅ Add desktop source for a separate website browser with a trusted local toolbar, YouTube search/navigation, single-command Listen/Watch handoff, manual yt-dlp downloads, and local userscript import/editing. Keep external pages outside the app bridge. Native site and real-download checks remain pending.
+- ✅ Add desktop chapters, ordered local playlists with automatic next-item playback, searchable editable notes, and imported SRT/VTT subtitles with local cue editing. These records use the shared library and portable archives. Android/PWA editing adapters and native subtitle overlay remain pending.
+- ✅ Add desktop archive export, checked import preview, conflict retention, local pre-import recovery, and explicit file relinking. Add a manual WebDAV preview/apply flow with separate device files and conditional publication. Real-server verification remains pending.
+- ✅ Add Bun-owned adaptive sleep timing, saved possible-sleep and actual-pause positions, configurable spoken time through installed system voices, and an explicit desktop background action with tray controls. Source and unit checks do not establish support on other native targets.
 - [ ] Verify Bun control mode on other targets: native picker cancel/open, page reload, closed-tab playback, multiple control tabs, and recent-file restoration after terminal restart. Repeat missing-player checks on other targets and check actual unavailable-dialog behavior.
 
 ## [ ] Data foundation: synchronization and recovery
@@ -30,30 +33,33 @@ This document tracks implemented source and remaining work. ✅ marks completed 
 `DATA_PLAN.md` owns this design. Address identity and persistence before expanding the library, notes, captions, or history.
 
 - ✅ Define the first shared logical model and implement browser progress/settings migration while retaining old data.
-- [ ] Connect native data adapters and migrate their progress stores without losing data or background updates.
-- [ ] Cover viewed/listened history, progress, metadata, descriptions/comments, subtitles, transcripts, chapters, bookmarks, notes, playlists, and portable settings.
-- [ ] Implement portable export/import and manual verified backup/restore, with explicit media inclusion and safe duplicate/conflict handling.
+- ✅ Connect the desktop library adapter to the Bun playback owner. Allocate device-local opaque record IDs, migrate valid playback settings, local recents, source links, and positions without clearing playback.json, and associate online/downloaded copies with the same logical media record.
+- [ ] Migrate Android native storage and connect the new library controls on Android and standalone PWA. Verify file access and relinking on each target.
+- ✅ Persist desktop progress, source/media metadata, chapters, playlists, notes, and imported subtitle originals, edits, and cues in shared records. Preserve archive variants rather than discarding conflicting text.
+- [ ] Complete viewed/listened history capture, descriptions/comments, transcripts, bookmark controls, and selected-item exports.
+- ✅ Add desktop portable archive export, validated import preview, retained conflicting variants, repeated-import deduplication, and pre-import recovery. Export excludes media bytes, device-local paths, credentials, downloads, and website sessions.
 - [ ] Define offline changes, revisions, deletions, and conflict handling for multiple devices. Preserve concurrent text edits and intentional rewinds.
-- [ ] Evaluate self-hosting, WebDAV, object storage, and cloud-drive adapters; choose the first destination separately from the data format.
+- ✅ Select WebDAV as the first desktop destination. Implement explicit connection, remote preview, merge-priority selection, manual apply, retry, and disconnect. Keep one device archive per remote file, require ETag/conditional writes, and retain the password only in process memory.
+- [ ] Verify a real WebDAV server and two real devices. Add automatic scheduling, causal revisions/deletion markers, attachment/media transfer, and other provider adapters separately. Manual snapshot exchange does not implement these capabilities.
 - [ ] Define encryption, credential storage, automatic sync/backups, retention, and provider changes before enabling them.
 
 ## [ ] Stage 1: playback ownership and first playable version
 
 ### [ ] Decide playback ownership
 
-The first desktop implementation uses a separate mpv process controlled by Bun through private JSON IPC. The interface reads state and sends validated commands. Default browser development controls this same engine through a local authenticated endpoint; `dev:web` explicitly selects a browser media element. Reloading or closing the development browser does not stop Bun playback. The future requirement to unload the desktop WebView must keep native playback, the sleep timer, and saved position alive. Closing the current desktop app still exits playback; tray mode and interface recreation are not implemented.
+The desktop implementation uses a separate mpv process controlled by Bun through private JSON IPC. The interface reads state and sends validated commands. Default browser development controls this same engine through a local authenticated endpoint; `dev:web` explicitly selects a browser media element. Reloading or closing the development browser does not stop Bun playback. The native desktop has an explicit Continue in background action that disposes the app WebView/context while Bun retains playback, sleep timing, and saved position. Tray Open recreates the interface from host state. Closing the player window or choosing Quit still exits the application. Native background verification remains separate from the lifecycle tests.
 
 | Target | Proposed direction | Required check before claiming support |
 | --- | --- | --- |
-| Desktop | Bun host, native media engine, optional WebView interface | Audio continues after WebView disposal; tray and global shortcuts work; reopening restores the interface without restarting audio |
+| Desktop | Bun host, native media engine, optional WebView interface | Check audio and timer continuity after WebView disposal, tray commands, and interface recreation. Global shortcuts remain pending. |
 | Android | Media3 ExoPlayer and MediaSessionService outside the Capacitor WebView; local plugin for the interface | Android build, background audio, notification actions, lock-screen controls, headset events, and interruption handling on a device |
 | iOS | Native media layer behind Capacitor | Background audio, system media controls, headset events, and interruption handling on a device |
 | PWA | Browser player and browser-supported media controls | Record actual background and control support per browser; do not promise native parity |
 
 - ✅ Use mpv for desktop local playback and Media3 1.11.1 for Android local audio. Keep format, resource, packaging, and license validation open before distribution.
-- ✅ Store desktop progress and settings in `Shravanam/playback.json`, outside the WebView. Development control mode uses `Shravanam-dev/playback.json`; standalone PWA progress uses IndexedDB.
-- [ ] Define storage for downloaded media. The shell cache is not book storage.
-- ✅ Define shared select, play/pause, seek, speed, and interval commands and playback state in `src/playback.ts`. Android maps the same commands to its service. Desktop system controls, sleep timer, and tray integration remain later work.
+- ✅ Store desktop progress and settings through the native shared-library adapter, outside the WebView. Keep playback.json and local bindings for device access and migration. Development control mode uses a separate Shravanam-dev profile; standalone PWA progress uses IndexedDB.
+- ✅ Store manual desktop downloads in private profile-owned directories with a checked download index. Keep media out of the shell cache. Cross-device media backup and automatic cache policies remain pending.
+- ✅ Define shared select, play/pause, seek, speed, and interval commands and playback state in `src/playback.ts`. Android maps the existing commands to its service. Desktop also has host-owned sleep commands and tray controls; global system controls remain pending.
 - ✅ Start with local files: MP3, M4A/M4B, AAC, FLAC, OGG/Opus, WAV, MP4/M4V, WebM, MKV, MOV. Browser codec support varies. Pasted individual YouTube links now have a separate desktop resolver. Generic URLs, other sites, and Android/PWA links remain pending.
 
 ### [ ] File drag-and-drop and associations
@@ -64,7 +70,7 @@ The first desktop implementation uses a separate mpv process controlled by Bun t
 - ✅ Add cold-launch arguments, a macOS document-event launcher, authenticated forwarding to an existing instance, and startup buffering. OS drops, associations, and the file dialog share the media-opening flow.
 - ✅ Add Android document selection, Open With, and file Share intake through content URIs, with cold/warm intent handling and queued imports. Request persistent read access where granted and identify temporary access in the UI. Device checks remain pending.
 - [ ] Use Folder Sync only as a reference for relevant validation and argument handling. Its internal file rules and drag format do not implement incoming OS associations or native file drops.
-- ✅ Add accepted files in input order and start the first accepted item of each batch. Skip unsupported entries with a visible error. The list is session-only; automatic next-item playback is not included.
+- ✅ Add accepted files in input order and start the first accepted item of each batch. Skip unsupported entries with a visible error. The intake list is session-only. Automatic next-item playback uses an explicitly selected saved playlist, not arbitrary recent-file order.
 - ✅ Check warm command-line delivery to the running native host on macOS. A second `bun run desktop -- <file> <file>` process exited successfully, kept the first host PID, and saved two WAV files with spaces and Cyrillic names in input order. Native loopback requests without a token or with a foreign Origin returned 403; unknown assets returned 404. Finder document events remain unchecked.
 - ✅ Check native macOS file drops and window closure with the user. Dropping two WAVs from Finder added both and started the first. Pausing near 20 seconds and closing with the app's X saved 20.48 seconds, stopped its Bun host and IINA, and left the separate browser-development player running. A new `bun run desktop` restored the same file at 20.48 seconds in Listen; private IPC reads two seconds apart confirmed that it stayed paused.
 - ✅ Check cold command-line intake in the native macOS app. Launching with two WAVs in reversed order started the first incoming file, instead of restoring the previous file on pause. Private IPC confirmed that playback advanced. Terminal shutdown saved its position, and another launch without files restored it paused in Listen.
@@ -87,7 +93,7 @@ Verification: check a selected-site link before enable, after enable, after rest
 
 ### [ ] Desktop mpv integration and distribution
 
-mpv is the first desktop playback engine, running as a separate process controlled through private JSON IPC. The source finds an installed or adjacent binary; packaging does not yet bundle it. WebView disposal while retaining playback remains a later stage.
+mpv is the first desktop playback engine, running as a separate process controlled through private JSON IPC. The source finds an installed or adjacent binary; packaging does not yet bundle it. Explicit background mode now disposes the app WebView while retaining the engine.
 
 - ✅ Add an installed-IINA fallback on macOS when standalone mpv is absent or fails during startup. Start a separate process with private IPC, silent initialization, and process-local preference overrides. Keep progress in Shravanam and close only its own process.
 - ✅ Add desktop Listen/Watch selection, saved with playback settings. Listen disables video. IINA uses RAM cache limits of 32/8 MiB forward/backward for Listen and 128/32 MiB for Watch, with safe hardware decoding requested for video.
@@ -105,7 +111,7 @@ mpv is the first desktop playback engine, running as a separate process controll
 - [ ] Validate real standalone mpv builds on target systems; repeat startup, play/pause, speed, seeking, Listen/Watch, file switching, paused restoration, end-of-file replay, and recovery before the five-second checkpoint on the other desktop backends. Measure CPU and memory before deciding whether to add a separate audio engine. Tauri migration is not selected.
 
 - ✅ Add application-owned `--config-dir`, `mpv.conf`, and editable `input.conf`, created only when absent. Bindings cover the mpv video window; global shortcuts remain future work.
-- ✅ Default standalone mpv buffering to `cache=yes`, `cache-on-disk=no`, 128 MiB forward and 32 MiB backward, configurable in `mpv.conf`. IINA uses the mode-specific properties above. This controls media buffering, not OS swap or settings writes. Desktop YouTube input uses metadata resolution and enforces RAM-only media buffering; no offline media download is implemented.
+- ✅ Default standalone mpv buffering to `cache=yes`, `cache-on-disk=no`, 128 MiB forward and 32 MiB backward, configurable in `mpv.conf`. IINA uses the mode-specific properties above. This controls media buffering, not OS swap or settings writes. Desktop YouTube playback enforces RAM-only buffering. Explicit offline downloads have a separate host-owned disk store.
 - [ ] Bundle mpv and its dependent libraries with the required licenses for each supported desktop architecture.
 - ✅ Resolve recorded YouTube links in the Bun host with installed yt-dlp, then pass validated HTTPS streams to mpv/IINA. Do not depend on the player’s bundled extraction hook.
 - ✅ Wait for IINA's silent launch file before opening media and match load completion to the requested path. Prefer IINA's bundled yt-dlp on macOS. A source-level check confirmed that a recorded YouTube audio stream loaded with the correct duration and playback advanced.
@@ -133,15 +139,15 @@ Reference: [mpv manual](https://mpv.io/manual/stable/).
 - ✅ Add local play/pause and playback speed from 0.25× to 3× in browser, desktop, and Android source.
 - ✅ Add configurable backward/forward intervals, initially 15/30 seconds, plus Space and Left/Right shortcuts in the app. Settings persist.
 - [ ] Seek with buttons and gestures. Define gesture direction, distance, and accidental-touch handling before implementation.
-- [ ] Chapters and navigation by chapter.
+- ✅ Add desktop chapter extraction from native files and resolved YouTube metadata, manual chapter creation/editing, and previous/next chapter navigation. Keep chapter actions separate from configured time-jump buttons. Android/PWA chapter adapters remain pending.
 - ✅ Persist position per local file and restore it on reopening. Browser identity uses name, size, and modification time; desktop identity uses canonical path, size, and modification time. Completed items restart at zero. macOS IINA checks are recorded below; other targets remain pending.
 - ✅ Keep the 20 most recent files, deduplicated and ordered by reopening, independently of the active session list. Automatically reopen the last file paused when access is available. Preserve missing/inaccessible entries for recovery; newer explicit opening must win over pending startup restoration.
 - ✅ Check changed local-file identity with isolated WAVs and macOS IINA 1.5.1. Selecting the old entry reported `changed-file` and retained the current source, pause, and position. Explicitly opening the changed file created a new identity at zero; the old identity kept its saved progress.
 - ✅ Check missing and unreadable local files with isolated WAVs and macOS IINA 1.5.1. A missing path reported `open` without replacing the current source. Returning the file restored its saved position. A missing startup file stayed in recents without autoplay and recovered through explicit recent-file selection. Removing read permission reported `open` while the control file kept playing; restoring permission allowed reopening. Fixture names included spaces and Cyrillic characters.
 - ✅ Check desktop batch intake and startup priority with isolated WAVs and macOS IINA 1.5.1. A mixed batch kept accepted files in input order, started its first accepted file, and reported skipped entries. Invalid-only input left playback running, and the next valid command worked. Recents stayed capped at 20, deduplicated reopening, and moved reopened files first. Startup restored only the most recent file paused with its position and a fresh session list. Explicit incoming files won both before restoration began and during native loading. A new Bun process restored the saved local file paused with its position and all 20 recents.
 - [ ] Complete restart and recent-file checks on each platform: saved position, no startup sound, incoming-file priority, changed/deleted files, revoked access, temporary Android grants, browser picker/drop handles, and browser fallback without handles. Verify browser import/restore still leaves playback stopped.
-- [ ] Queue and local playlists. Define the relationship between queue order and chapter navigation.
-- [ ] Audio-only and video playback modes.
+- ✅ Add desktop saved local playlists, ordered add/remove/move actions, explicit playlist playback, and next-item selection at EOF. Chapter actions seek within the current item; queue transitions select another item. Persist the playlist, not an automatic restart of an active queue.
+- ✅ Add desktop audio-only Listen and native-window Watch modes. Android video and standalone PWA mode parity remain pending.
 - [ ] Keep watched/listened history. Decide how completion and partial listening are recorded.
 - [ ] Handle calls, other audio, output-device changes, and removed headphones without unexpected playback.
 
@@ -154,9 +160,10 @@ Stage verification: open a supported source, change speed, seek, reopen at the s
 - [ ] Expose play/pause and the configured time jumps through supported lock-screen and headset controls.
 - [ ] Add useful notification actions where the platform supports them; define the action set per platform.
 - [ ] Investigate volume-button control separately from normal volume adjustment. Define a user-selected mode and supported platforms before intercepting any buttons.
-- [ ] Keep desktop tray commands and global shortcuts active with the WebView completely disposed.
-- [ ] Recreate the desktop interface on demand from the active playback state without changing position or restarting the track.
-- [ ] Keep explicit application exit separate from hiding or disposing its interface.
+- ✅ Add desktop tray Open, Play/Pause, configured backward/forward jumps, and Quit, owned by Bun while the app WebView/context is disposed. Lifecycle/menu tests cover commands and unavailable-tray recovery. Native platform verification remains pending.
+- ✅ Recreate the desktop interface on tray Open or incoming media without reopening the active track. Retain an empty hidden native window to keep WebviewJS alive.
+- ✅ Keep explicit Continue in background separate from Close/Quit. If the tray is unavailable, retain or restore the player interface and show an actionable failure.
+- [ ] Add global shortcuts and supported OS media controls. Verify real headset and system-volume events; current app/mpv volume observation does not establish system-volume support.
 - [ ] Compare memory, CPU, and energy use for the same media, codec, resolution, and output mode. Check hardware video decoding and avoid duplicate decoders. Lower resource use is a goal to measure, not a guarantee from choosing a native wrapper.
 - [ ] In audio-only mode, avoid video decoding and video transfer when the source provides a usable separate audio stream. Record behavior when it does not.
 
@@ -169,9 +176,10 @@ Stage verification: compare playback with the interface open and disposed; confi
 - ✅ Represent downloading, finishing, interrupted, ready, and failed states in the desktop interface. An incomplete file cannot open as offline-ready. A waiting queue remains pending with automatic downloading.
 - ✅ Add manual paste/open of individual recorded YouTube links on desktop, including video links with playlist parameters and explicit timestamps. Keep 20 canonical source links separate from local recents; store no signed stream URLs.
 - [ ] Add OS Share/Open with input for YouTube links and Android/PWA adapters. Separate receipt of the link from successful media extraction and playback.
-- ✅ Bind desktop downloaded file identities to the existing YouTube progress key, retain the title, and restore the local copy paused without fetching streams. Shared-library IDs, notes/chapter links, and native adapter migration remain pending in `DATA_PLAN.md`.
+- ✅ Bind desktop downloaded files to their YouTube logical media record and shared progress, retain the title, and restore the local copy paused without fetching streams. Notes, chapters, and playlists retain that logical identity. Cross-device local-file relinking remains explicit.
 - [ ] Search the saved archive and watched/listened history.
-- [ ] Keep searchable personal notes on videos, channels, and playlists, including items without a local download.
+- ✅ Add searchable personal notes on opened local files and desktop YouTube videos, including online items without a download. Keep timed notes and seek to their stored positions.
+- [ ] Add direct note-creation flows for channels and source playlists. Local playlist creation does not implement those source flows.
 - ✅ Use the existing desktop WebviewJS/system WebView with a separate website context and local toolbar. Use the existing installed yt-dlp discovery and runtime restrictions for explicit offline downloads. Keep the Bun host. Native behavior and the Android adapter remain to be verified/implemented.
 - [ ] Investigate reuse of an existing downloader before implementing a browser. Define manual file import versus watched-folder import separately.
 - [ ] Evaluate yt-dlp for both media sources and related data: manual and automatic subtitles, descriptions, chapters, and comments where available. Use metadata extraction or `--skip-download` when media bytes are not needed; assess desktop and Android integration separately.
@@ -197,65 +205,73 @@ Verification: find a video through the embedded browser, download the selected f
 
 ## [ ] Stage 4: bookmarks, notes, subtitles, and transcription
 
-- [ ] Timestamped bookmarks and editable notes.
+- ✅ Add desktop editable notes with an optional explicit timestamp, search across saved notes, and seek from a timed result. Preserve the selected note target while another file opens.
+- [ ] Add dedicated bookmark controls. The shared bookmark record alone does not implement the interface.
+- ✅ Import desktop SRT/VTT files up to 1,000,000 bytes. Keep the original text, language, edited copy, and parsed cues; display the current cue in Shravanam and seek from a subtitle line. Render imported text as text, not executable markup.
+- ✅ Edit local subtitle text and timing without replacing its original source. Keep alternate note versions visible after archive or WebDAV merges.
 - [ ] Extract available YouTube subtitles and chapter timestamps with descriptions.
 - [ ] Evaluate yt-dlp subtitle retrieval with `--write-subs` and `--write-auto-subs`, and selected languages. Import available descriptions and chapters from metadata and comments through `--write-comments`. Retrieving existing automatic captions is separate from generating a new transcript.
 - [ ] Import useful video-description text and selected comments as local notes.
 - [ ] Let the user keep only useful parts of imported descriptions and comments and edit their local copies. Do not publish these edits back to the source.
 - [ ] Attach an imported note to a parsed timestamp or a time chosen by the user. Do not invent a time for text without one.
-- [ ] Retain the source reference of imported information and keep imported text distinguishable from the user's edited note.
-- [ ] Prevent later metadata refreshes from silently overwriting local edits. Decide whether to retain a separate original snapshot.
+- ✅ Retain the target reference and separate original/edited fields for imported subtitles. Keep local chapters when the source opens again instead of overwriting them from extracted metadata.
+- [ ] Apply the same original/edited policy to future description/comment imports and metadata refreshes.
 - [ ] Transcribe media when required. Decide languages, processing location, timing accuracy, compute limits, and whether a remote service is acceptable.
-- [ ] Search personal notes attached to media, channels, and playlists. Decide whether full subtitle and transcript search is included in the first version.
+- ✅ Search desktop personal notes on saved media, including opened online YouTube videos. Timed results open the correct logical item before seeking.
+- [ ] Add channel/source-playlist note creation and full subtitle/transcript search. Import source descriptions/comments and generate transcripts separately from local SRT/VTT support.
+- [ ] Connect these editing tools on Android and standalone PWA, and add native subtitle overlay where supported.
 
 Stage verification: import a timed note, edit it locally, reload metadata, and confirm the edit remains intact. Selecting a timed result must seek to its saved position.
 
 ## [ ] Stage 5: adaptive sleep timer
 
-### [ ] Scheduling and signal
+### ✅ Desktop scheduling and signal
 
-- [ ] Configure time-of-day windows for automatic timer activation. The example starts from media opened at 21:00; decide whether opening, starting playback, or entering the window is the actual trigger.
-- [ ] Configure the first delay, repeat interval, signal duration, signal gain, volume reduction, number of repeats, and response-wait duration.
-- [ ] Offer a short brown-noise signal with fade-in and fade-out.
+- ✅ Add manual activation and optional day/time windows. Start an automatic cycle when playback is active in an eligible window, including entry while already playing. Overnight windows belong to their starting day. Automatic activation is off by default.
+- ✅ Configure the first delay, repeat interval, signal duration, signal gain, volume reduction, number of repeats, and response-wait duration. Store settings in the native profile.
+- ✅ Mix a short brown-noise signal with fade-in/out through the existing mpv audio filter. The same native engine plays media and the signal. Scale signal length for playback speed; no separate ffmpeg executable is required. A muted macOS IINA check confirmed filter acceptance and advancing audio.
 - [ ] Allow recording a personal signal, for example “Are you asleep?”. Define microphone permission, storage, and replacement behavior when implementing recording.
 
-### [ ] Example sequence, pending exact choices
+### ✅ Approved desktop sequence
 
-| State | Example action | Next event |
+| State | Default action | Next event |
 | --- | --- | --- |
-| Initial delay | Start a 15-minute delay for eligible media at 21:00 | User response resets the delay; delay completion starts the signal |
-| Signal | Mix in 5 seconds of brown noise at one third of the current volume, with fade-in and fade-out, or use the recorded signal | Enter the repeat cycle |
-| Repeat cycle | Repeat after 5 minutes; reduce volume by a configurable step such as 30% | User volume increase resets the cycle; after the configured number of unanswered repeats, pause |
-| Paused response window | Save the pause position and wait for a few minutes for a supported headset action or volume change | A qualifying response can resume playback; timeout enters explicit-play-only mode |
-| Explicit-play-only mode | Remain paused | Resume only on Play from the headset, notification, or application |
+| Initial delay | Count 15 minutes of actual playing time | A response resets the delay; completion starts the first signal |
+| First signal | Mix 5 seconds of brown noise at one third of the application level, with fades; keep media volume unchanged | Start a 5-minute playing-time delay |
+| Repeats | Play two further signals, each after its 5-minute delay; reduce current media volume by 30% at each repeat | A response resets the cycle; the last signal ends in pause |
+| Paused response window | Save the actual pause position and wait 3 minutes | An app/mpv volume increase or I am awake restores starting volume and resumes; expiry requires explicit Play |
+| Explicit-play-only mode | Remain paused, including after a volume change | Explicit Play starts playback and a new cycle |
 
-- [ ] Keep the actual pause position and a separate possible sleep-start position for each file. Show them as separate resume choices. The latter is an estimate, not detected sleep.
-- [ ] Do not count automatic volume changes made by the timer as user responses.
-- [ ] Keep this sequence in the playback owner so unloading the interface does not stop or reset it.
-- [ ] Define how schedule boundaries, manual pause, seeking, switching files, queue transitions, and application restart affect a running cycle.
+- ✅ Keep per-item possible-sleep and actual-pause positions and show separate seek choices. Possible sleep starts at the first unanswered signal and is an estimate, not sleep detection. Keep saved markers after host restart.
+- ✅ Treat an app/mpv volume increase and the explicit I am awake action as responses. Restore pre-cycle application volume and restart the first delay. Timer volume changes are not responses; volume decreases do not reset the timer.
+- ✅ Keep timing in the Bun playback owner, independent of the app WebView. Manual pause freezes playing-time counters; seeking keeps the cycle. Switching files or advancing a playlist restores starting volume and resets the delay. A running cycle continues across the end of its activation window.
+- ✅ Reset the active cycle on host restart without autoplay. Retain settings and sleep positions; normal eligible playback can activate the configured schedule again.
 
-### [ ] Decisions needed before implementation
+### [ ] Remaining timer adapters and checks
 
-- [ ] Is a 30% reduction relative to the current volume, the starting volume, or 30 percentage points? Does the first signal already reduce volume?
-- [ ] Does “one or two repeats” exclude the first signal? What is the default repeat count?
-- [ ] Is the first-delay countdown based on elapsed time or actual playing time? Does entering a scheduled window while media is already playing start it?
-- [ ] Does a user response restore the pre-timer volume, keep the new volume, or only reset the countdown?
-- [ ] During the pause window, does either direction of volume change count, or only an increase? Which headset button counts, and should it also resume playback?
-- [ ] How is possible sleep-start time chosen: last user response, first unanswered signal, or another point?
-- [ ] How are signal gain and the one-third level defined relative to application gain and system volume? Is the media kept at its current level during the signal?
-- [ ] Define the response-wait duration and behavior where system-volume changes cannot be reliably observed. Keep explicit Play available.
+- [ ] Implement Android and standalone PWA timing/signal adapters with their own background guarantees.
+- [ ] Verify real headset and system-volume events on devices before using them as responses. Current desktop volume observation covers the application/mpv volume, not OS hardware-volume events.
+- [ ] Verify audible signal level/fades and user responses on each advertised desktop backend. The muted IINA check does not replace an audible check.
 
-Stage verification: use a controlled event sequence to cover all states, manual and automatic volume changes, saved markers, deadline expiry, and unloading the interface. Verify real headset and system-volume events on devices.
+Verification: Bun tests cover the full default cycle, 100% to 70% to 49% volume steps, manual pause, seek, response reset, file switching, both saved positions, deadline expiry, explicit Play, and settings/marker restoration. Native background, signal audibility, headset, and system-volume checks remain platform-specific.
 
 ## [ ] Stage 6: spoken time
 
-- [ ] Speak the time at a configurable interval, with 15 minutes as the example.
-- [ ] Configure active days and the spoken phrase using hour and minute variables, with 12-hour or 24-hour format.
-- [ ] Decide language, voice, and whether speech must work offline.
-- [ ] Decide whether the schedule uses clock boundaries such as 21:00 and 21:15 or elapsed intervals from playback start.
-- [ ] Decide interaction with paused media, sleep mode, the sleep signal, quiet periods, and missed announcements. Avoid unexpected speech after the sleep timer has paused playback.
+- ✅ Add desktop configurable intervals, active days/time windows, system voice/language selection, phrase editing with `{hour}` and `{minute}`, 12/24-hour format, and voice testing. Default: disabled, 30-minute clock boundaries, daily 09:00-22:00, 24-hour format, Russian Milena voice, phrase `Сейчас {hour}:{minute}`.
+- ✅ Use installed offline system voices through the Bun host: macOS say, Windows System.Speech, or installed eSpeak on Linux. Do not download a voice automatically. A voice unavailable on the current device requires a new selection. Milena is present on the current macOS system; Windows/Linux runtime checks remain pending.
+- ✅ Follow local clock boundaries and skip missed announcements. Default to active playback only. An optional setting also permits speech during a manual pause after playback in the current session; restored-paused startup does not speak.
+- ✅ Suppress speech during the sleep signal and after the sleep timer pauses playback. Cancel pending speech on pause, file change, and shutdown; pending voice discovery cannot restart a cancelled announcement.
+- [ ] Add Android and standalone PWA speech adapters and verify each supported system voice/backend on its platform.
 
-Stage verification: cover day boundaries, time format, selected days, schedule changes, and overlap with the sleep timer.
+Verification: Bun tests cover clock-boundary deduplication, skipped announcements, selected days, day boundaries, 12-hour formatting, startup pause, unavailable/loading player state, sleep overlap, and cancellation while voice discovery is pending. Real voice output and desktop background checks remain separate.
+
+## Desktop use
+
+Open a local file or YouTube video, then expand Library. Create or edit chapters, make a playlist, add the current item, and change its order with the move controls. Playing an item from a playlist enables next-item playback at EOF. Chapter controls seek within that item and leave the configured time jumps unchanged. Notes can use the current position, a typed time such as 12:30, or no time. Import SRT/VTT under Subtitles, choose a track, and edit its local copy while retaining the original.
+
+Use Data, backups, and synchronization for a portable data-only archive, import preview, or recovery of the pre-import library. Imported local files need explicit access/relinking on the receiving device. Under WebDAV, enter an HTTPS folder, login, and password, inspect remote data, then apply the preview with the desired version priority. Sync is manual, retains conflicting variants, and excludes media files. The password lasts only for the running host session.
+
+Start the sleep timer explicitly or enable its optional day/time window. Use I am awake to reset the countdown and restore starting volume. The possible-sleep and actual-pause buttons seek to different saved positions. Spoken time is independently disabled until enabled and configured. On native desktop, Continue in background unloads the app interface; the tray opens it again, controls playback, or quits. The window Close action still quits.
 
 ## Technical reference points
 
@@ -273,6 +289,7 @@ These references identify specific platform constraints; they do not select a co
 
 - ✅ Choose desktop and Android first, with desktop-browser debugging for the interface.
 - ✅ Start with local-file playback, position saving, and configurable time jumps.
-- [ ] Validate desktop mpv and OS intake, and Android playback on a device; then implement desktop WebView disposal and tray controls.
-- [ ] Resolve the sleep-timer choices when that stage starts; retain the requested examples until then.
-- [ ] Decide the source acquisition approach before promising YouTube downloads or arbitrary-site support.
+- ✅ Add desktop WebView disposal and tray controls after the library, notes/subtitles, manual sync, and timer source. Keep actual native background checks separate from unit coverage.
+- ✅ Resolve the desktop adaptive timer sequence and configurable spoken-time behavior with the user. The approved defaults and remaining hardware/platform checks are recorded above.
+- ✅ Select installed yt-dlp for recorded desktop YouTube playback and explicit downloads. Android/PWA acquisition and arbitrary-site support remain pending.
+- [ ] Finish desktop target checks and Android device playback checks. Verify real WebDAV synchronization and preserve the remaining adapter, history, transcription, and hardware-control work above.

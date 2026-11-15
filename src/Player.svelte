@@ -9,6 +9,11 @@
   import LibraryTools from "./LibraryTools.svelte";
   import { droppedBrowserFiles, pickBrowserFiles, type BrowserMediaFile } from "./browser-files";
   import { BunPlayerError, createBunPlayer } from "./bun-player";
+  import LibraryPanel from "./LibraryPanel.svelte";
+  import NativeLibraryTools from "./NativeLibraryTools.svelte";
+  import { requestLibrary, libraryFailure, type NativeLibraryState } from "./library-client";
+  import type { LibraryCommand } from "./library";
+  import SleepPanel from "./SleepPanel.svelte";
 
   const russian = document.documentElement.lang === "ru";
   const text = (english: string, translation: string) => russian ? translation : english;
@@ -29,6 +34,11 @@
   let ready = $state(false);
   let link = $state("");
   let openingLink = $state(false);
+  let nativeLibrary = $state.raw<NativeLibraryState | null>(null);
+  let libraryError = $state("");
+  let libraryLoading = $state(false);
+  let libraryTarget: string | null | undefined;
+  let backgroundError = $state("");
   const current = $derived(playback.items.find(item => item.id === playback.currentId));
   const errorText = $derived.by(() => {
     const failure = interfaceError ?? playback.error;
@@ -91,6 +101,25 @@
       else { console.error(error); interfaceError = { code: error instanceof BunPlayerError ? error.code : "player", name: current?.name }; }
     }
   }
+  async function refreshLibrary() {
+    if (!nativeDesktop) return;
+    try { nativeLibrary = await requestLibrary({ type: "state" }); libraryError = ""; }
+    catch (error) { libraryError = libraryFailure(error).split(" / ")[russian ? 1 : 0] ?? libraryFailure(error); }
+  }
+  async function backgroundWindow() {
+    backgroundError = "";
+    try { await window.shravanamDesktop!.backgroundWindow(russian ? "ru" : "en"); }
+    catch (error) { const message = error instanceof Error ? error.message : "Cannot enter background mode. Keep the window open and try again. / Не удалось перейти в фон. Оставьте окно открытым и повторите попытку."; backgroundError = message.split(" / ")[russian ? 1 : 0] ?? message; }
+  }
+  async function libraryCommand(action: LibraryCommand) {
+    libraryLoading = true;
+    try {
+      nativeLibrary = await requestLibrary({ type: "command", command: action });
+      playback = await desktopPlayer()!.getPlaybackState();
+      libraryError = "";
+    } catch (error) { libraryError = libraryFailure(error).split(" / ")[russian ? 1 : 0] ?? libraryFailure(error); throw error; }
+    finally { libraryLoading = false; }
+  }
   async function openFiles() {
     interfaceError = null;
     if (!nativePlayer) {
@@ -121,7 +150,7 @@
     const poll = async () => {
       if (!nativePlayer || polling || document.hidden || (nativeDesktop && !desktopPlayer())) return;
       polling = true;
-      try { const next = await (android ? androidPlayer.getPlaybackState() : desktopPlayer()!.getPlaybackState()); if (active) { playback = next; ready = true; if (interfaceError?.code === "host") interfaceError = null; } }
+      try { const next = await (android ? androidPlayer.getPlaybackState() : desktopPlayer()!.getPlaybackState()); if (active) { playback = next; ready = true; if (interfaceError?.code === "host") interfaceError = null; if (nativeDesktop && libraryTarget !== next.libraryMediaId) { libraryTarget = next.libraryMediaId; void refreshLibrary(); } } }
       catch (error) { if (active) { console.error(error); playback = { ...playback, error: { code: android ? "android-player" : bunPlayer ? "host" : "player" } }; } }
       finally { polling = false; }
     };
@@ -241,6 +270,14 @@
   {#if !nativeDesktop && !Capacitor.isNativePlatform()}
     <LibraryTools enabled={ready} beforeExport={async () => { await browserPlayer?.flush(); }} beforeChange={stopBrowser} afterChange={startBrowser} />
   {/if}
+  {#if nativeDesktop && nativeLibrary}
+    <LibraryPanel library={nativeLibrary.library} currentMediaId={playback.libraryMediaId ?? null} time={playback.time} duration={playback.duration} loading={libraryLoading || playback.loading} oncommand={libraryCommand} onseek={time => command({ type: "seek", time })} onplay={(mediaId, playlistId) => libraryCommand({ type: "play", mediaId, ...(playlistId ? { playlistId } : {}) })} />
+    <NativeLibraryTools state={nativeLibrary} onrefresh={refreshLibrary} />
+  {/if}
+  {#if nativeDesktop && playback.sleep}<SleepPanel state={playback.sleep} oncommand={async action => { playback = await desktopPlayer()!.sleepCommand(action); }} onseek={time => { void command({ type: "seek", time }); }} />{/if}
+  {#if libraryError}<p class="error" role="alert">{libraryError}</p>{/if}
+  {#if desktop}<div class="controls playback-mode"><button type="button" class="action" onclick={backgroundWindow} onpointerup={releasePointerFocus}>{text("Continue in background", "Продолжить в фоне")}</button><span class="hint">{text("Reopen and control playback from the tray. Close exits the app.", "Открыть окно и управлять воспроизведением можно из трея. Кнопка закрытия завершает приложение.")}</span></div>{/if}
+  {#if backgroundError}<p class="error" role="alert">{backgroundError}</p>{/if}
 </section>
 
 <style>
