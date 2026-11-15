@@ -239,6 +239,7 @@ export class MpvPlayer {
     try {
       if (this.backend === "iina") await this.request(["set_property", "mute", true]);
       await this.request(["set_property", "pause", true]);
+      await this.request(["set_property", "force-media-title", stream?.title ?? ""]);
       await this.request(["set_property", "http-header-fields", stream?.headers ?? []]);
       await this.request(["set_property", "ytdl", false]);
       if (stream) {
