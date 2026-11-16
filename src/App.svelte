@@ -3,7 +3,6 @@
   import { Capacitor } from "@capacitor/core";
   import { releasePointerFocus } from "./pointer-input";
   import Player from "./Player.svelte";
-  import SourcesPanel from "./SourcesPanel.svelte";
   import SourceTools from "./SourceTools.svelte";
 
   const russian = document.documentElement.lang === "ru";
@@ -62,19 +61,20 @@
   <SourceTools />
 {:else}
 <main>
-  <h1>{text("Your audiobooks", "Ваши аудиокниги")}</h1>
   <Player />
-  {#if desktop || bunHost}<SourcesPanel />{/if}
-  <div class="status" role="status">
-    <span>{online ? text("Online", "Есть подключение к сети") : text("Offline", "Нет подключения к сети")}</span>
-    <span>{offlineStatus}</span>
+  <div class="status" role="status" title={offlineStatus}>
+    <span class:offline={!online}>{online ? text("Online", "В сети") : text("Offline", "Нет сети")}</span>
+    <span>{bunHost ? text("Local player", "Локальный плеер") : offlineStatus}</span>
   </div>
 </main>
 {/if}
 
 <style>
-  main { max-width: 760px; margin: 0 auto; padding: 64px max(24px, env(safe-area-inset-right)) max(32px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left)); }
-  h1 { margin: 0 0 12px; font-size: clamp(24px, 5vw, 32px); font-weight: 600; }
-  .status { display: grid; gap: 8px; margin-top: 40px; font-size: 13px; color: #a5a5a5; }
-  .status span:first-child { color: #fec965; }
+  :global(body) { font-size: 13px; }
+  :global(button), :global(input), :global(select), :global(textarea) { font: inherit; }
+  main { max-width: 1040px; margin: 0 auto; padding: 16px max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+  .status { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; font-size: 11px; color: #777; }
+  .status span:first-child { color: #a3ad99; }
+  .status span.offline { color: #d0ab73; }
+  @media (max-width: 540px) { main { padding: 10px max(10px, env(safe-area-inset-right)) 12px max(10px, env(safe-area-inset-left)); } }
 </style>

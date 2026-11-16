@@ -106,8 +106,8 @@
   }
 </script>
 
-<details class="library-tools">
-  <summary>{text("Data and backups", "Данные и резервные копии")}</summary>
+<section class="library-tools" aria-label={text("Data and backups", "Данные и резервные копии")}>
+  <h3>{text("Data and backups", "Данные и резервные копии")}</h3>
   <p>{text("Save browser library data as a portable archive. Audio and video files are not included.", "Сохраните данные библиотеки браузера в переносимый архив. Аудио и видеофайлы в него не входят.")}</p>
   {#if warnings}<p class="error">{text(`Could not migrate ${warnings} old entries. Their original browser data is retained, but these entries are not in the archive.`, `Не удалось перенести старые записи: ${warnings}. Исходные данные сохранены в браузере, но эти записи не попадут в архив.`)}</p>{/if}
   <div class="actions">
@@ -119,7 +119,7 @@
   {#if previousDate !== null}<p>{text("Local copy", "Локальная копия")}: {date(previousDate)}</p>{/if}
   {#if message}<p role="status">{message}</p>{/if}
   {#if failure && !dialogOpen}<p class="error" role="alert">{failure}</p>{/if}
-</details>
+</section>
 
 <dialog bind:this={dialog} oncancel={event => { if (busy) event.preventDefault(); }} onclose={() => { dialogOpen = false; preview = null; }} aria-label={text("Review library changes", "Проверка изменений библиотеки")}>
   {#if preview}
@@ -140,12 +140,12 @@
 </dialog>
 
 <style>
-  .library-tools { margin-top: 20px; }
-  summary { cursor: pointer; font-size: 13px; color: #aaa; }
+  .library-tools { margin-top: 16px; }
+  h3 { margin: 0 0 8px; font-size: 12px; font-weight: 500; color: #aaa; }
   p, label { font-size: 13px; line-height: 1.5; color: #bbb; }
   label { display: flex; align-items: start; gap: 8px; }
-  .actions { display: flex; flex-wrap: wrap; gap: 10px; }
-  button { padding: 8px 12px; background: #292929; border-radius: 6px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  button { padding: 5px 10px; min-height: 30px; background: #292929; border-radius: 6px; }
   button:disabled { opacity: 0.5; cursor: default; }
   button:focus-visible { outline: 2px solid #fec965; outline-offset: 2px; }
   button:hover:where([data-ui-hover="true"] *):not(:disabled) { background: #383838; }

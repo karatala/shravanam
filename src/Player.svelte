@@ -14,6 +14,7 @@
   import { requestLibrary, libraryFailure, type NativeLibraryState } from "./library-client";
   import type { LibraryCommand } from "./library";
   import SleepPanel from "./SleepPanel.svelte";
+  import SourcesPanel from "./SourcesPanel.svelte";
 
   const russian = document.documentElement.lang === "ru";
   const text = (english: string, translation: string) => russian ? translation : english;
@@ -41,10 +42,12 @@
   let backgroundError = $state("");
   let mpvPath = $state("");
   let savingMpvPath = $state(false);
+  let panel = $state("library");
   const savedMpvPath = $derived(playback.mpvPath ?? "");
   const mpvExample = navigator.platform.startsWith("Win") ? "C:\\Players\\mpv\\mpv.exe" : "/usr/local/bin/mpv";
   const playerPathFailure = $derived(["missing-player", "player-path", "player-settings"].includes((interfaceError ?? playback.error)?.code ?? ""));
   $effect(() => { mpvPath = savedMpvPath; });
+  $effect(() => { if (playerPathFailure) panel = "settings"; });
   const current = $derived(playback.items.find(item => item.id === playback.currentId));
   const errorText = $derived.by(() => {
     const failure = interfaceError ?? playback.error ?? playback.videoError;
@@ -222,125 +225,165 @@
   });
 </script>
 
-<section class:dragging aria-label={text("Player", "Плеер")}>
-  <div class="open-row">
+<section class="player" class:dragging aria-label={text("Player", "Плеер")}>
+  <div class="source-row">
     <button type="button" class="action" disabled={!ready} onclick={openFiles} onpointerup={releasePointerFocus}>{text("Open files", "Открыть файлы")}</button>
-    {#if bunPlayer}<span>{text("Select files through the system dialog", "Выберите файлы через системный диалог")}</span>
-    {:else if !android}<span>{dragging ? text("Drop files here", "Отпустите файлы здесь") : text("Or drop files from your file manager", "Или перетащите файлы из файлового менеджера")}</span>{/if}
+    {#if nativeDesktop}
+      <form class="link-form" onsubmit={openLink}>
+        <input type="url" aria-label={text("YouTube link", "Ссылка YouTube")} bind:value={link} required maxlength="2048" placeholder={text("YouTube link", "Ссылка YouTube")} />
+        <button type="submit" class="action" disabled={!ready || playback.loading || openingLink} onpointerup={releasePointerFocus}>{text("Open", "Открыть")}</button>
+      </form>
+    {:else if !android}<span class="hint intake-hint">{text("or drop files here", "или перетащите файлы сюда")}</span>{/if}
   </div>
   <input bind:this={fileInput} type="file" accept={mediaAccept} multiple hidden onchange={() => { addFiles(Array.from(fileInput.files ?? [], file => ({ file }))); fileInput.value = ""; }} />
-  {#if nativeDesktop}
-    <form class="open-row playback-mode" onsubmit={openLink}>
-      <label class="link-field">YouTube<input type="url" bind:value={link} required maxlength="2048" placeholder="https://www.youtube.com/watch?v=…" /></label>
-      <button type="submit" class="action" disabled={!ready || playback.loading || openingLink} onpointerup={releasePointerFocus}>{text("Open link", "Открыть ссылку")}</button>
-    </form>
-    {#if playback.loading || openingLink}<p class="hint" role="status">{text("Opening media…", "Открытие медиа…")}</p>{/if}
-  {/if}
-  {#if nativeDesktop && typeof playback.audioOnly === "boolean"}
-    <div class="controls playback-mode">
-      <label>{text("Mode", "Режим")}<select disabled={!ready || playback.loading} value={playback.audioOnly ? "audio" : "video"} onchange={event => command({ type: "audio-only", value: event.currentTarget.value === "audio" })}><option value="audio">{text("Listen", "Слушать")}</option><option value="video">{text("Watch", "Смотреть")}</option></select></label>
-      {#if playback.backend}<span class="hint">{text("Player", "Плеер")}: {playback.backend === "iina" ? "IINA" : "mpv"}</span>{/if}
-    </div>
-  {/if}
-  {#if errorText}<p class="error" role="alert">{errorText}</p>{/if}
-  {#if playback.videoLoading}<p class="hint" role="status">{text("Opening video. Audio keeps playing; the picture will join at the current position.", "Подключение видео. Звук продолжает идти; изображение появится на текущей позиции.")}</p>{/if}
-  {#if nativeDesktop}
-    <details open={playerPathFailure}>
-      <summary>{text("Player settings", "Настройки плеера")}</summary>
-      <form class="controls playback-mode" onsubmit={async event => { event.preventDefault(); savingMpvPath = true; try { await command({ type: "mpv-path", value: mpvPath }); } finally { savingMpvPath = false; } }}>
-        <label class="link-field">{text("Path to mpv", "Путь к mpv")}<input type="text" bind:value={mpvPath} maxlength="32768" placeholder={mpvExample} autocomplete="off" spellcheck="false" /></label>
-        <button type="button" class="action" disabled={!ready || playback.loading || savingMpvPath} onclick={browseMpv} onpointerup={releasePointerFocus}>{text("Browse…", "Обзор…")}</button>
-        <button type="submit" class="action" disabled={!ready || playback.loading || savingMpvPath} onpointerup={releasePointerFocus}>{text("Apply", "Применить")}</button>
-      </form>
-      <p class="hint">{text("Leave empty for automatic search. After applying the path, press Play or reopen the file. If the player is already running, restart Shravanam to use the new path.", "Оставьте поле пустым для автоматического поиска. После применения пути нажмите «Воспроизвести» или откройте файл снова. Если плеер уже запущен, перезапустите Shravanam для использования нового пути.")}</p>
-      {#if playback.systemControls?.supported}
-        <p class="hint">{text("System media controls", "Системное управление")}: {playback.systemControls.available ? text("connected", "подключено") : text("unavailable", "недоступно")}. {text("Media Previous/Next use the configured time jumps.", "Медиаклавиши «Назад/Вперёд» используют заданные интервалы перемотки.")}</p>
-        {#each playback.systemControls.shortcuts as shortcut}<p class="hint">{shortcut.key}: {({ toggle: text("Play/Pause", "Пауза/воспроизведение"), back: text("Seek backward", "Перемотка назад"), forward: text("Seek forward", "Перемотка вперёд"), open: text("Open window", "Открыть окно") } as Record<string, string>)[shortcut.action]}{shortcut.registered ? "" : text(" (unavailable or already in use)", " (недоступно или уже занято)")}</p>{/each}
-        {#if playback.systemControls.error}<p class="error" role="alert">{playback.systemControls.error.split(" / ")[russian ? 1 : 0] ?? playback.systemControls.error}</p>{/if}
-      {/if}
-    </details>
-  {/if}
+
+  <div class="track-heading">
+    <h2 class:empty={!current} title={current?.name}>{current?.name ?? (nativeDesktop ? text("Open a file or a YouTube link", "Откройте файл или ссылку YouTube") : text("Open a file to start listening", "Откройте файл для воспроизведения"))}</h2>
+    {#if playback.backend}<span class="backend">{playback.backend === "iina" ? "IINA" : "mpv"}</span>{/if}
+  </div>
   {#if !nativePlayer}<video bind:this={mediaElement} class:audio-only={current?.kind !== "video"} playsinline preload="metadata"><track kind="captions" /></video>{/if}
   {#if current}
-    <h2>{current.name}</h2>
-    {#if android && current.kind === "video"}<p class="hint">{text("Playing the audio track. Video display is not available on Android yet.", "Воспроизводится звуковая дорожка. Показ видео на Android пока не добавлен.")}</p>{/if}
-    {#if nativeDesktop && current.kind === "video"}<p class="hint">{playback.audioOnly ? text("Playing only audio. Select Watch to enable video in the player window.", "Воспроизводится только звук. Выберите «Смотреть», чтобы включить видео в окне плеера.") : text("Video plays in a separate player window.", "Видео воспроизводится в отдельном окне плеера.")}</p>{/if}
-    {#if current.temporary}<p class="hint">{text("This file has temporary access. For later playback, select it with Open files to request lasting access.", "Доступ к файлу временный. Для последующего воспроизведения выберите его через «Открыть файлы», чтобы запросить постоянный доступ.")}</p>{/if}
-    {#if playback.loading && !nativeDesktop}<p role="status">{text("Opening media…", "Открытие файла…")}</p>{/if}
-    <label class="timeline">
-      <span>{formatTime(playback.time)} / {formatTime(playback.duration)}</span>
+    <div class="timeline">
+      <span>{formatTime(playback.time)}</span>
       <input aria-label={text("Playback position", "Позиция воспроизведения")} type="range" min="0" max={playback.duration || 1} step="0.1" value={playback.time} disabled={!playback.duration || playback.loading} onchange={event => command({ type: "seek", time: Number(event.currentTarget.value) })} />
-    </label>
-    <div class="controls">
-      <button type="button" class="action" disabled={playback.loading} onclick={() => command({ type: "seek", time: Math.max(0, playback.time - playback.backward) })} onpointerup={releasePointerFocus}>−{playback.backward} {text("s", "с")}</button>
-      <button type="button" class="action primary" disabled={playback.loading} onclick={() => command({ type: "toggle" })} onpointerup={releasePointerFocus}>{playback.paused ? text("Play", "Воспроизвести") : text("Pause", "Пауза")}</button>
-      <button type="button" class="action" disabled={playback.loading} onclick={() => command({ type: "seek", time: playback.time + playback.forward })} onpointerup={releasePointerFocus}>+{playback.forward} {text("s", "с")}</button>
-      <label>{text("Speed", "Скорость")}<select value={playback.speed} onchange={event => command({ type: "speed", value: Number(event.currentTarget.value) })}>{#each [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3] as speed}<option value={speed}>{speed}×</option>{/each}</select></label>
+      <span>{formatTime(playback.duration)}</span>
     </div>
   {/if}
-  <details>
-    <summary>{text("Seek intervals", "Интервалы перемотки")}</summary>
-    <div class="intervals">
-      <label>{text("Backward, seconds", "Назад, секунд")}<input type="number" required min="1" max="600" step="1" value={playback.backward} onchange={event => { if (event.currentTarget.reportValidity()) void command({ type: "intervals", backward: Number(event.currentTarget.value), forward: playback.forward }); }} /></label>
-      <label>{text("Forward, seconds", "Вперёд, секунд")}<input type="number" required min="1" max="600" step="1" value={playback.forward} onchange={event => { if (event.currentTarget.reportValidity()) void command({ type: "intervals", backward: playback.backward, forward: Number(event.currentTarget.value) }); }} /></label>
-    </div>
-  </details>
-  {#if playback.items.length}
-    <ul>{#each playback.items as item (item.id)}<li><button type="button" class="file" aria-current={item.id === playback.currentId ? "true" : undefined} onclick={() => command({ type: "select", id: item.id })} onpointerup={releasePointerFocus}>{item.name}</button></li>{/each}</ul>
-  {/if}
-  {#if playback.recent?.length}
-    <details>
-      <summary>{text("Recent files", "Последние файлы")}</summary>
-      <p class="hint">{text("The last file opens paused on startup when file access is available.", "При запуске последний файл открывается на паузе, если доступ к нему сохранён.")}</p>
-      <ul>{#each playback.recent as item (item.id)}<li><button type="button" class="file" disabled={!ready} onclick={() => command({ type: "recent", id: item.id })} onpointerup={releasePointerFocus}>{item.name}{item.temporary ? text(" · access may need renewal", " · может потребоваться доступ заново") : ""}</button></li>{/each}</ul>
-    </details>
-  {/if}
-  {#if nativeDesktop && playback.recentLinks?.length}
-    <details>
-      <summary>{text("Recent YouTube links", "Последние ссылки YouTube")}</summary>
-      <ul>{#each playback.recentLinks as item (item.id)}<li><button type="button" class="file" disabled={!ready || playback.loading} onclick={() => command({ type: "select", id: item.id })} onpointerup={releasePointerFocus}>{item.name}</button></li>{/each}</ul>
-    </details>
-  {/if}
-  {#if !nativeDesktop && !Capacitor.isNativePlatform()}
-    <LibraryTools enabled={ready} beforeExport={async () => { await browserPlayer?.flush(); }} beforeChange={stopBrowser} afterChange={startBrowser} />
-  {/if}
-  {#if nativeDesktop && nativeLibrary}
-    <LibraryPanel library={nativeLibrary.library} currentMediaId={playback.libraryMediaId ?? null} time={playback.time} duration={playback.duration} loading={libraryLoading || playback.loading} oncommand={libraryCommand} onseek={time => command({ type: "seek", time })} onplay={(mediaId, playlistId) => libraryCommand({ type: "play", mediaId, ...(playlistId ? { playlistId } : {}) })} />
-    <NativeLibraryTools state={nativeLibrary} onrefresh={refreshLibrary} />
-  {/if}
-  {#if nativeDesktop && playback.sleep}<SleepPanel state={playback.sleep} oncommand={async action => { playback = await desktopPlayer()!.sleepCommand(action); }} onseek={time => { void command({ type: "seek", time }); }} />{/if}
-  {#if libraryError}<p class="error" role="alert">{libraryError}</p>{/if}
-  {#if desktop}<div class="controls playback-mode"><button type="button" class="action" onclick={backgroundWindow} onpointerup={releasePointerFocus}>{text("Continue in background", "Продолжить в фоне")}</button><span class="hint">{text("Reopen and control playback from the tray. Close exits the app.", "Открыть окно и управлять воспроизведением можно из трея. Кнопка закрытия завершает приложение.")}</span></div>{/if}
+  <div class="controls">
+    {#if current}
+      <div class="transport">
+        <button type="button" class="action" disabled={playback.loading} title={text("Seek backward", "Перемотка назад")} onclick={() => command({ type: "seek", time: Math.max(0, playback.time - playback.backward) })} onpointerup={releasePointerFocus}>−{playback.backward} {text("s", "с")}</button>
+        <button type="button" class="action primary" disabled={playback.loading} onclick={() => command({ type: "toggle" })} onpointerup={releasePointerFocus}>{playback.paused ? text("Play", "Воспроизвести") : text("Pause", "Пауза")}</button>
+        <button type="button" class="action" disabled={playback.loading} title={text("Seek forward", "Перемотка вперёд")} onclick={() => command({ type: "seek", time: playback.time + playback.forward })} onpointerup={releasePointerFocus}>+{playback.forward} {text("s", "с")}</button>
+      </div>
+      <label class="speed">{text("Speed", "Скорость")}<select value={playback.speed} onchange={event => command({ type: "speed", value: Number(event.currentTarget.value) })}>{#each [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3] as speed}<option value={speed}>{speed}×</option>{/each}</select></label>
+    {/if}
+    {#if nativeDesktop && typeof playback.audioOnly === "boolean"}
+      <select class="mode" aria-label={text("Playback mode", "Режим воспроизведения")} title={text("Video opens in the player window", "Видео открывается в окне плеера")} disabled={!ready || playback.loading} value={playback.audioOnly ? "audio" : "video"} onchange={event => command({ type: "audio-only", value: event.currentTarget.value === "audio" })}><option value="audio">{text("Listen", "Слушать")}</option><option value="video">{text("Watch", "Смотреть")}</option></select>
+    {/if}
+    {#if desktop}<button type="button" class="action background" title={text("Continue playback and reopen from the tray", "Продолжить воспроизведение и открыть окно из трея")} onclick={backgroundWindow} onpointerup={releasePointerFocus}>{text("Background", "В фон")}</button>{/if}
+  </div>
+  {#if dragging}<p class="hint" role="status">{text("Drop files here", "Отпустите файлы здесь")}</p>{/if}
+  {#if playback.loading || openingLink}<p class="hint" role="status">{text("Opening media…", "Открытие медиа…")}</p>{/if}
+  {#if playback.videoLoading}<p class="hint" role="status">{text("Opening video; audio keeps playing.", "Подключение видео; звук продолжает идти.")}</p>{/if}
+  {#if android && current?.kind === "video"}<p class="hint">{text("Audio only on Android for now.", "На Android пока воспроизводится только звук.")}</p>{/if}
+  {#if current?.temporary}<p class="hint">{text("Temporary file access. Use Open files to request lasting access.", "Временный доступ к файлу. Выберите его через «Открыть файлы», чтобы сохранить доступ.")}</p>{/if}
+  {#if errorText}<p class="error" role="alert">{errorText}</p>{/if}
   {#if backgroundError}<p class="error" role="alert">{backgroundError}</p>{/if}
 </section>
 
+<section class="workspace" aria-label={text("Library and tools", "Библиотека и инструменты")}>
+  <nav class="workspace-nav" aria-label={text("Workspace", "Разделы")}>
+    <button type="button" class:active={panel === "library"} aria-pressed={panel === "library"} onclick={() => panel = "library"} onpointerup={releasePointerFocus}>{text("Library", "Библиотека")}</button>
+    {#if nativeDesktop}
+      <button type="button" class:active={panel === "sources"} aria-pressed={panel === "sources"} onclick={() => panel = "sources"} onpointerup={releasePointerFocus}>{text("Sources", "Источники")}</button>
+      <button type="button" class:active={panel === "sleep"} aria-pressed={panel === "sleep"} onclick={() => panel = "sleep"} onpointerup={releasePointerFocus}>{text("Sleep", "Сон")}{#if playback.sleep && !["idle", "expired"].includes(playback.sleep.phase)}<span class="badge">{formatTime(playback.sleep.remainingSeconds)}</span>{/if}</button>
+    {/if}
+    <button type="button" class:active={panel === "settings"} aria-pressed={panel === "settings"} onclick={() => panel = "settings"} onpointerup={releasePointerFocus}>{text("Settings", "Настройки")}</button>
+  </nav>
+
+  <div class="workspace-panel" hidden={panel !== "library"}>
+    {#if nativeDesktop && nativeLibrary}
+      <LibraryPanel library={nativeLibrary.library} currentMediaId={playback.libraryMediaId ?? null} time={playback.time} duration={playback.duration} loading={libraryLoading || playback.loading} oncommand={libraryCommand} onseek={time => command({ type: "seek", time })} onplay={(mediaId, playlistId) => libraryCommand({ type: "play", mediaId, ...(playlistId ? { playlistId } : {}) })} />
+    {/if}
+    <div class="record-groups">
+      {#if playback.items.length > 1}
+        <section class="record-group" aria-label={text("Current files", "Открытые файлы")}>
+          <h3>{text("Current files", "Открытые файлы")} <span>{playback.items.length}</span></h3>
+          <ul>{#each playback.items as item (item.id)}<li><button type="button" class="file" title={item.name} aria-current={item.id === playback.currentId ? "true" : undefined} onclick={() => command({ type: "select", id: item.id })} onpointerup={releasePointerFocus}>{item.name}</button></li>{/each}</ul>
+        </section>
+      {/if}
+      {#if playback.recent?.length}
+        <section class="record-group" aria-label={text("Recent files", "Последние файлы")}>
+          <h3>{text("Recent files", "Последние файлы")} <span>{playback.recent.length}</span></h3>
+          <ul>{#each playback.recent as item (item.id)}<li><button type="button" class="file" title={item.name} disabled={!ready} onclick={() => command({ type: "recent", id: item.id })} onpointerup={releasePointerFocus}>{item.name}{item.temporary ? " · !" : ""}</button></li>{/each}</ul>
+        </section>
+      {/if}
+      {#if nativeDesktop && playback.recentLinks?.length}
+        <section class="record-group" aria-label={text("Saved links", "Сохранённые ссылки")}>
+          <h3>{text("Saved links", "Сохранённые ссылки")} <span>{playback.recentLinks.length}</span></h3>
+          <ul>{#each playback.recentLinks as item (item.id)}<li><button type="button" class="file" title={item.name} disabled={!ready || playback.loading} onclick={() => command({ type: "select", id: item.id })} onpointerup={releasePointerFocus}>{item.name}</button></li>{/each}</ul>
+        </section>
+      {/if}
+    </div>
+  </div>
+  {#if nativeDesktop}
+    <div class="workspace-panel" hidden={panel !== "sources"}><SourcesPanel /></div>
+    <div class="workspace-panel" hidden={panel !== "sleep"}>{#if playback.sleep}<SleepPanel state={playback.sleep} oncommand={async action => { playback = await desktopPlayer()!.sleepCommand(action); }} onseek={time => { void command({ type: "seek", time }); }} />{/if}</div>
+  {/if}
+  <div class="workspace-panel settings" hidden={panel !== "settings"}>
+    {#if nativeDesktop}
+      <h3>{text("Player", "Плеер")}</h3>
+      <form class="controls" onsubmit={async event => { event.preventDefault(); savingMpvPath = true; try { await command({ type: "mpv-path", value: mpvPath }); } finally { savingMpvPath = false; } }}>
+        <label class="path-field">mpv<input type="text" aria-label={text("Path to mpv", "Путь к mpv")} bind:value={mpvPath} maxlength="32768" placeholder={mpvExample} autocomplete="off" spellcheck="false" /></label>
+        <button type="button" class="action" disabled={!ready || playback.loading || savingMpvPath} onclick={browseMpv} onpointerup={releasePointerFocus}>{text("Browse…", "Обзор…")}</button>
+        <button type="submit" class="action" disabled={!ready || playback.loading || savingMpvPath} onpointerup={releasePointerFocus}>{text("Apply", "Применить")}</button>
+      </form>
+      <p class="hint">{text("Empty path: automatic search. Restart the player to use a changed path.", "Пустой путь: автоматический поиск. Новый путь применяется после перезапуска плеера.")}</p>
+    {/if}
+    <h3>{text("Seek intervals", "Интервалы перемотки")}</h3>
+    <div class="intervals">
+      <label>{text("Back, sec", "Назад, сек")}<input type="number" required min="1" max="600" step="1" value={playback.backward} onchange={event => { if (event.currentTarget.reportValidity()) void command({ type: "intervals", backward: Number(event.currentTarget.value), forward: playback.forward }); }} /></label>
+      <label>{text("Forward, sec", "Вперёд, сек")}<input type="number" required min="1" max="600" step="1" value={playback.forward} onchange={event => { if (event.currentTarget.reportValidity()) void command({ type: "intervals", backward: playback.backward, forward: Number(event.currentTarget.value) }); }} /></label>
+    </div>
+    {#if playback.systemControls?.supported}
+      <h3>{text("System controls", "Системное управление")}</h3>
+      <p class="hint">{playback.systemControls.available ? text("Connected. Media Previous/Next use the seek intervals above.", "Подключено. Медиаклавиши «Назад/Вперёд» используют интервалы выше.") : playback.systemControls.error ? text("Unavailable", "Недоступно") : text("Connecting…", "Подключение…")}</p>
+      <div class="shortcuts">{#each playback.systemControls.shortcuts as shortcut}<span><kbd>{shortcut.key}</kbd>{({ toggle: text("Play/Pause", "Пауза"), back: text("Back", "Назад"), forward: text("Forward", "Вперёд"), open: text("Open window", "Открыть окно") } as Record<string, string>)[shortcut.action]}{playback.systemControls.available && !shortcut.registered ? text(" · occupied", " · занято") : ""}</span>{/each}</div>
+      {#if playback.systemControls.error}<p class="error" role="alert">{playback.systemControls.error.split(" / ")[russian ? 1 : 0] ?? playback.systemControls.error}</p>{/if}
+    {/if}
+    {#if nativeDesktop && nativeLibrary}<NativeLibraryTools state={nativeLibrary} onrefresh={refreshLibrary} />{/if}
+    {#if !nativeDesktop && !Capacitor.isNativePlatform()}<LibraryTools enabled={ready} beforeExport={async () => { await browserPlayer?.flush(); }} beforeChange={stopBrowser} afterChange={startBrowser} />{/if}
+  </div>
+  {#if libraryError}<p class="error" role="alert">{libraryError}</p>{/if}
+</section>
+
 <style>
-  section { margin-top: 28px; padding: 16px; border-radius: 10px; background: #141414; }
-  section.dragging { background: #322a18; }
-  .open-row, .controls, .intervals { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
-  .open-row span, summary, label { font-size: 13px; color: #aaa; }
-  .action { padding: 8px 12px; border-radius: 6px; background: #292929; }
-  .primary { color: #fec965; }
-  .playback-mode { margin-top: 12px; }
-  button:disabled { opacity: 0.5; cursor: default; }
-  button:hover:where([data-ui-hover="true"] *):not(:disabled) { background: #383838; }
+  .player, .workspace { padding: 12px; border-radius: 8px; background: #141414; }
+  .player.dragging { background: #322a18; }
+  .source-row, .link-form, .controls, .transport, .intervals { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .link-form { flex: 1; min-width: 200px; flex-wrap: nowrap; }
+  .link-form input { width: 100%; }
+  .action { min-height: 30px; padding: 5px 10px; border-radius: 5px; background: #262626; font-size: 12px; }
+  .primary { color: #fec965; background: #332d20; min-width: 90px; }
+  .background { margin-left: auto; }
+  button:disabled { opacity: 0.45; cursor: default; }
+  button:hover:where([data-ui-hover="true"] *):not(:disabled) { background: #333; }
   button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #fec965; outline-offset: 2px; }
-  video { display: block; width: 100%; max-height: 420px; margin-top: 16px; background: #000; }
+  .track-heading { display: flex; align-items: start; gap: 12px; margin: 12px 0 8px; }
+  h2 { flex: 1; min-width: 0; margin: 0; font-size: 14px; line-height: 1.45; font-weight: 500; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  h2.empty { color: #888; font-size: 13px; }
+  .backend { font-size: 11px; color: #888; padding-top: 3px; }
+  video { display: block; width: 100%; max-height: 360px; margin: 8px 0; background: #000; }
   video.audio-only { display: none; }
-  h2 { font-size: 18px; overflow-wrap: anywhere; font-weight: 500; }
-  .timeline { display: grid; gap: 8px; margin: 16px 0; }
-  .timeline input { width: 100%; accent-color: #fec965; }
-  label { display: flex; align-items: center; gap: 8px; }
-  select, input[type="number"], input[type="url"], input[type="text"] { padding: 6px; background: #292929; color: #eee; border: none; border-radius: 4px; }
-  .link-field { flex: 1; min-width: 180px; }
+  .timeline { display: flex; align-items: center; gap: 10px; margin: 8px 0; color: #aaa; font-size: 11px; font-variant-numeric: tabular-nums; }
+  .timeline input { flex: 1; min-width: 30px; margin: 0; accent-color: #fec965; }
+  label { display: flex; align-items: center; gap: 6px; color: #aaa; font-size: 12px; }
+  select, input[type="number"], input[type="url"], input[type="text"] { min-height: 30px; padding: 5px 8px; background: #242424; color: #eee; border: none; border-radius: 5px; font-size: 12px; }
   input[type="url"], input[type="text"] { flex: 1; min-width: 0; }
-  input[type="number"] { width: 80px; }
-  details { margin-top: 20px; }
-  summary { cursor: pointer; }
-  .intervals { margin-top: 12px; }
-  ul { padding: 0; list-style: none; margin: 20px 0 0; }
-  .file { width: 100%; text-align: left; padding: 10px; border-radius: 5px; background: transparent; overflow-wrap: anywhere; }
-  .file[aria-current="true"] { background: #292929; color: #fec965; }
-  .error { color: #ffb3a7; line-height: 1.5; }
-  .hint { color: #aaa; font-size: 13px; line-height: 1.5; }
+  input[type="number"] { width: 64px; }
+  .mode { margin-left: auto; }
+
+  .workspace { margin-top: 10px; }
+  .workspace-nav { display: flex; flex-wrap: wrap; gap: 4px; margin: -3px -3px 10px; }
+  .workspace-nav button { display: flex; align-items: center; gap: 6px; min-height: 30px; padding: 5px 10px; border-radius: 5px; background: transparent; color: #aaa; font-size: 12px; }
+  .workspace-nav button.active { background: #2b271f; color: #fec965; }
+  .badge { font-size: 10px; font-variant-numeric: tabular-nums; }
+  .workspace-panel { min-width: 0; }
+  .record-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 12px; }
+  .record-group { min-width: 0; }
+  h3 { margin: 14px 0 8px; font-size: 12px; font-weight: 500; color: #aaa; }
+  h3 span { color: #6f6f6f; margin-left: 4px; font-size: 11px; }
+  .settings > h3:first-child { margin-top: 0; }
+  .path-field { flex: 1; min-width: 180px; }
+  .shortcuts { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 11px; color: #aaa; }
+  .shortcuts span { display: inline-flex; align-items: center; gap: 6px; }
+  kbd { padding: 3px 5px; background: #242424; border-radius: 4px; font-family: inherit; font-size: 11px; color: #ccc; }
+  ul { max-height: 156px; overflow: auto; padding: 0; list-style: none; margin: 0; }
+  .file { display: block; width: 100%; text-align: left; padding: 6px 8px; border-radius: 4px; background: transparent; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
+  .file[aria-current="true"] { background: #29251c; color: #fec965; }
+  .error { margin: 8px 0 0; color: #ffb3a7; font-size: 12px; line-height: 1.45; }
+  .hint { margin: 8px 0 0; color: #888; font-size: 11px; line-height: 1.45; }
+  .intake-hint { margin: 0; }
+  @media (max-width: 540px) { .player, .workspace { padding: 10px; } .source-row { gap: 6px; } .link-form { min-width: 160px; gap: 6px; } .controls { gap: 6px; } .transport { gap: 4px; } .primary { min-width: 80px; } .speed { margin-left: auto; } .mode { margin-left: 0; } .workspace-nav { gap: 2px; } .workspace-nav button { padding: 5px 8px; } }
 </style>

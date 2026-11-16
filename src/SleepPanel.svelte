@@ -10,6 +10,7 @@
   let language = $state("ru");
   let busy = $state(false);
   let failure = $state("");
+  let panel = $state<"timer" | "speech">("timer");
   const configKey = $derived(JSON.stringify({ settings: sleepState.settings, speech: sleepState.speech }));
   const languages = $derived([...new Set(sleepState.voices.map(voice => voice.language.split("-")[0]))].sort());
   const voices = $derived(sleepState.voices.filter(voice => voice.language.split("-")[0] === language));
@@ -32,20 +33,25 @@
 </script>
 
 <section aria-label={text("Sleep and spoken time", "Сон и озвучивание времени")}>
-  <h2>{text("Sleep timer", "Таймер сна")}</h2>
-  <p aria-live="polite">{phase}{!["idle", "expired"].includes(sleepState.phase) ? ` · ${formatTime(sleepState.remainingSeconds)}` : ""}</p>
-  <div class="actions">
+  <div class="status-row">
+    <strong>{text("Sleep timer", "Таймер сна")}</strong>
+    <span aria-live="polite">{phase}{!["idle", "expired"].includes(sleepState.phase) ? ` · ${formatTime(sleepState.remainingSeconds)}` : ""}</span>
+    <div class="actions">
     <button disabled={busy || !sleepState.mediaId} onclick={() => action({ type: "start" }, true)} onpointerup={releasePointerFocus}>{text("Start timer", "Включить таймер")}</button>
     <button disabled={busy || sleepState.phase === "idle"} onclick={() => action({ type: "stop" })} onpointerup={releasePointerFocus}>{text("Stop timer", "Выключить таймер")}</button>
     <button disabled={busy || ["idle", "expired"].includes(sleepState.phase)} onclick={() => action({ type: "respond" })} onpointerup={releasePointerFocus}>{text("I am awake", "Я не сплю")}</button>
+    </div>
   </div>
   {#if sleepState.marker}
     <div class="actions"><span>{text("Resume position:", "Позиция для возврата:")}</span><button disabled={!onseek} onclick={() => onseek?.(sleepState.marker!.time)} onpointerup={releasePointerFocus}>{text("Possible sleep start", "Возможное засыпание")} {formatTime(sleepState.marker.time)}</button>{#if sleepState.marker.pausedAt !== null}<button disabled={!onseek} onclick={() => onseek?.(sleepState.marker!.pausedAt!)} onpointerup={releasePointerFocus}>{text("Actual pause", "Фактическая пауза")} {formatTime(sleepState.marker.pausedAt)}</button>{/if}</div>
   {/if}
   {#if failure || sleepState.error}<p role="alert" class="error">{failure || (sleepState.error.includes(" / ") ? sleepState.error.split(" / ")[russian ? 1 : 0] : sleepState.error)}</p>{/if}
+  <nav aria-label={text("Sleep settings", "Настройки сна")}>
+    <button type="button" class:active={panel === "timer"} aria-pressed={panel === "timer"} onclick={() => panel = "timer"} onpointerup={releasePointerFocus}>{text("Timer", "Таймер")}</button>
+    <button type="button" class:active={panel === "speech"} aria-pressed={panel === "speech"} onclick={() => panel = "speech"} onpointerup={releasePointerFocus}>{text("Spoken time", "Озвучивание времени")}</button>
+  </nav>
   <form onsubmit={event => { event.preventDefault(); void save(); }}>
-    <details>
-      <summary>{text("Timer settings", "Настройки таймера")}</summary>
+    {#if panel === "timer"}
       <div class="fields">
         <label>{text("First delay, min", "Первый сигнал через, мин")}<input type="number" min="1" max="240" step="1" required bind:value={settings.firstMinutes} /></label>
         <label>{text("Repeat after, min", "Повтор через, мин")}<input type="number" min="1" max="60" step="1" required bind:value={settings.repeatMinutes} /></label>
@@ -61,9 +67,7 @@
         <div class="days" aria-label={text("Timer days", "Дни таймера")}>{#each days as day}<label><input type="checkbox" checked={settings.schedule.days.includes(day)} onchange={() => toggleDay(settings.schedule, day)} />{dayNames[day]}</label>{/each}</div>
       {/if}
       <p>{text("Only playing time counts. The first signal keeps the volume. Each repeat reduces the current volume. A volume increase or I am awake resets the timer and restores its starting volume. System volume and headset buttons are not tracked here.", "Считается только время воспроизведения. Первый сигнал не снижает громкость. Каждый повтор снижает текущую громкость. Повышение громкости в плеере или «Я не сплю» сбрасывает таймер и возвращает исходный уровень. Системная громкость и кнопки гарнитуры здесь не отслеживаются.")}</p>
-    </details>
-    <details>
-      <summary>{text("Spoken time", "Озвучивание времени")}</summary>
+    {:else}
       <label><input type="checkbox" bind:checked={speech.enabled} />{text("Speak the time", "Озвучивать время")}</label>
       <div class="fields">
         <label>{text("Every, min", "Каждые, мин")}<input type="number" min="1" max="120" step="1" required bind:value={speech.intervalMinutes} /></label>
@@ -82,26 +86,37 @@
       {#if speech.schedule.enabled}<div class="fields"><label>{text("From", "С")}<input type="time" required bind:value={speech.schedule.start} /></label><label>{text("To", "До")}<input type="time" required bind:value={speech.schedule.end} /></label></div>{/if}
       <div class="days" aria-label={text("Spoken time days", "Дни озвучивания")}>{#each days as day}<label><input type="checkbox" checked={speech.schedule.days.includes(day)} onchange={() => toggleDay(speech.schedule, day)} />{dayNames[day]}</label>{/each}</div>
       <p>{text("Uses installed system voices. Speech stops after the sleep timer pauses playback.", "Используются установленные системные голоса. После паузы по таймеру сна озвучивание не работает.")}</p>
-    </details>
-    <button disabled={busy} onpointerup={releasePointerFocus}>{text("Save settings", "Сохранить настройки")}</button>
+    {/if}
+    <button class="save" disabled={busy} onpointerup={releasePointerFocus}>{text("Save settings", "Сохранить настройки")}</button>
   </form>
 </section>
 
 <style>
-  section { margin-top: 28px; padding: 16px; border-radius: 10px; background: #141414; }
-  h2 { margin-top: 0; font-size: 18px; font-weight: 500; }
-  .actions, .fields, .days { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 12px 0; }
-  button { padding: 8px 12px; border-radius: 6px; background: #292929; }
+  section { min-width: 0; }
+  .status-row, .actions, .days, nav { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .status-row { gap: 8px 12px; margin-bottom: 12px; }
+  .status-row strong { color: #eee; font-size: 13px; font-weight: 500; }
+  .status-row > span { color: #aaa; }
+  .status-row .actions { margin-left: auto; }
+  .actions { margin: 8px 0; }
+  nav { margin-bottom: 12px; }
+  .fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: center; gap: 8px 16px; margin: 10px 0; }
+  .days { margin: 8px 0; }
+  button { min-height: 30px; padding: 5px 9px; border-radius: 5px; background: #242424; font-size: 12px; }
+  nav button { background: transparent; color: #aaa; }
+  nav button.active { color: #fec965; background: #29251c; }
   button:disabled { opacity: 0.5; cursor: default; }
   button:hover:where([data-ui-hover="true"] *):not(:disabled) { background: #383838; }
-  button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid #fec965; outline-offset: 2px; }
-  input:not([type="checkbox"]):not([type="range"]), select { padding: 6px; background: #292929; color: #eee; border: none; border-radius: 4px; }
-  input[type="number"] { width: 64px; }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #fec965; outline-offset: 2px; }
+  input:not([type="checkbox"]):not([type="range"]), select { box-sizing: border-box; min-height: 30px; padding: 5px 7px; background: #242424; color: #eee; border: none; border-radius: 4px; font-size: 12px; min-width: 0; }
+  input[type="number"] { width: 58px; flex-shrink: 0; }
   input[type="range"] { width: 100px; }
-  .phrase { min-width: 220px; }
-  label { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: 13px; color: #aaa; }
-  p, span, summary { font-size: 13px; line-height: 1.5; color: #bbb; }
-  summary { cursor: pointer; }
-  details { margin: 20px 0; }
+  .phrase { width: 220px; max-width: 100%; flex: 1; }
+  label { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 12px; color: #aaa; min-width: 0; }
+  .fields label { justify-content: space-between; margin: 0; }
+  p, span { font-size: 12px; line-height: 1.45; color: #999; }
+  p { margin: 8px 0; }
+  .save { margin-top: 4px; }
   .error { color: #ffb3a7; }
+  @media (max-width: 640px) { .fields { grid-template-columns: 1fr; } .status-row .actions { margin-left: 0; width: 100%; } }
 </style>
