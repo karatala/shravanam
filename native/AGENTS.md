@@ -10,6 +10,7 @@
 - `linux/register-file-types.py` installs the current user's Open With entry from packaged metadata.
 - `scripts/desktop-associations.js` owns Windows registration output and shared packaging metadata.
 - `android/` owns the Media3 service, local Capacitor plugin, and Android app overlay. Its child contract owns Android lifecycle and permission rules.
+- `windows/` owns the bundled Windows media-session and global-shortcut helper. Playback stays in Bun/mpv; the helper owns only OS controls and its hidden message window.
 
 ## Local Contracts
 
@@ -24,4 +25,5 @@
 
 ## Child DOX Index
 
+- `windows/AGENTS.md`: SMTC state/actions, global shortcut registration, helper lifetime, and bundling contract.
 - `android/AGENTS.md`: Android playback owner, media session, content-URI intake, and generated-project integration.

@@ -31,7 +31,7 @@ export function sleepSignalFilter(seconds, gain, speed = 1) {
   const duration = Math.min(30, Math.max(0.1, seconds)) * Math.min(3, Math.max(0.25, speed));
   const amplitude = Math.min(1, Math.max(0, gain));
   const fade = Math.min(0.2 * speed, duration / 2);
-  const graph = `[in]asetpts=PTS-STARTPTS[media];anoisesrc=color=brown:amplitude=${amplitude}:duration=${duration}:sample_rate=48000,afade=t=in:d=${fade},afade=t=out:st=${duration - fade}:d=${fade}[noise];[media][noise]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[out]`;
+  const graph = `anoisesrc=color=brown:amplitude=${amplitude}:duration=${duration}:sample_rate=48000,afade=t=in:d=${fade},afade=t=out:st=${duration - fade}:d=${fade}[noise];[in][noise]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[out]`;
   return `@shravanam-sleep:lavfi=graph=%${Buffer.byteLength(graph)}%${graph}`;
 }
 

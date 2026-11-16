@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { basename, extname, isAbsolute, join } from "node:path";
 import { initialPlaybackState, mediaKind, validPlaybackCommand } from "../src/playback.ts";
 import { MpvPlayer } from "./mpv.js";
-import { youtubeSource, resolveYouTube } from "./youtube.js";
+import { youtubeSource, resolveYouTube, resolveYouTubeVideo } from "./youtube.js";
 import { createLibraryStore } from "./library-store.js";
 import { createWebDav } from "./webdav.js";
 import { primaryRecords, validLibraryCommand } from "../src/library.ts";
@@ -19,6 +19,12 @@ export async function createMediaPlayer(profile, dependencies = {}) {
   const paths = new Map();
   const links = new Map();
   const resolverAbort = new AbortController();
+  const resolveSource = dependencies.resolveYouTube ?? resolveYouTube;
+  const resolveVideo = dependencies.resolveYouTubeVideo ?? resolveYouTubeVideo;
+  let videoGeneration = 0;
+  let videoAbort = null;
+  let videoLoading = false;
+  let videoError = null;
   let resolving = false;
   const settingsPath = join(profile, "playback.json");
   const playerSettingsPath = join(profile, "player.json");
@@ -74,7 +80,28 @@ export async function createMediaPlayer(profile, dependencies = {}) {
   player.state.speed = state.speed;
   player.audioOnly = audioOnly;
   player.executablePath = mpvPath;
-  const snapshot = () => ({ ...state, ...(currentId ? player.state : {}), loading: resolving || player.state.loading, currentId, libraryMediaId: library.binding(currentId)?.mediaId ?? null, sleep: { ...sleep.snapshot(), voices, error: sleepError || sleep.snapshot().error }, audioOnly: player.audioOnly, backend: player.backend, mpvPath, items: [...state.items], recent: recent.map(({ id, name, kind, title }) => ({ id, name: typeof title === "string" ? title : name, kind })), recentLinks: [...links.values()].reverse().map(({ id, name, kind }) => ({ id, name, kind })) });
+  const snapshot = () => ({ ...state, ...(currentId ? player.state : {}), loading: resolving || player.state.loading, videoLoading, videoError, currentId, libraryMediaId: library.binding(currentId)?.mediaId ?? null, sleep: { ...sleep.snapshot(), voices, error: sleepError || sleep.snapshot().error }, audioOnly: player.audioOnly, backend: player.backend, mpvPath, items: [...state.items], recent: recent.map(({ id, name, kind, title }) => ({ id, name: typeof title === "string" ? title : name, kind })), recentLinks: [...links.values()].reverse().map(({ id, name, kind }) => ({ id, name, kind })) });
+  function cancelVideo() {
+    videoGeneration++;
+    videoAbort?.abort();
+    videoAbort = null;
+    videoLoading = false;
+    videoError = null;
+  }
+  function startVideo(source) {
+    cancelVideo();
+    const generation = videoGeneration;
+    const mediaId = currentId;
+    const controller = new AbortController();
+    videoAbort = controller;
+    videoLoading = true;
+    void resolveVideo(source, controller.signal).then(async stream => {
+      if (closing || generation !== videoGeneration || currentId !== mediaId || !player.loaded || player.audioOnly) return;
+      await player.addVideo(stream);
+    }).catch(error => {
+      if (!closing && generation === videoGeneration && currentId === mediaId && !player.audioOnly) { console.error("Could not enable video", error.code ?? error.name); videoError = { code: "video" }; }
+    }).finally(() => { if (generation === videoGeneration) { videoLoading = false; videoAbort = null; } });
+  }
   const sleepContext = () => ({ mediaId: library.binding(currentId)?.mediaId ?? null, time: player.state.time, available: Boolean(currentId && player.loaded && !player.state.loading && !resolving), playing: Boolean(currentId && player.loaded && !player.state.paused && !player.state.loading && !resolving), volume: player.state.volume ?? 100 });
   async function applySleepEffects(effects) {
     for (const effect of effects) {
@@ -133,6 +160,7 @@ export async function createMediaPlayer(profile, dependencies = {}) {
     await saveSettings();
     const binding = await library.bindLocal({ key: id, name: entry.title ?? entry.name, kind: entry.kind, file: entry.file, path });
     currentId = id;
+    cancelVideo();
     endedHandled = false;
     await player.load(path, state.speed, library.position(binding), autoplay);
     await readChapters(binding.mediaId);
@@ -141,10 +169,11 @@ export async function createMediaPlayer(profile, dependencies = {}) {
   }
   async function selectLink(source, autoplay = true, position, audioOnly = player.audioOnly) {
     speech.stop();
+    cancelVideo();
     resolving = true;
     state.error = null;
     try {
-      const stream = await resolveYouTube(source, audioOnly, resolverAbort.signal);
+      const stream = await resolveSource(source, true, resolverAbort.signal);
       if (closing) return;
       await saveSettings();
       const binding = await bindLibrarySource(source, stream.title);
@@ -164,6 +193,7 @@ export async function createMediaPlayer(profile, dependencies = {}) {
       currentId = source.id;
       endedHandled = false;
       await player.load(stream.url, state.speed, start, autoplay, stream);
+      if (!audioOnly && player.audioMaster !== false) startVideo(source);
       await readChapters(binding.mediaId, stream.chapters);
       if (stream.description && !primaryRecords(library.snapshot()).some(record => record.kind === "text" && record.value.targetId === binding.mediaId && record.value.role === "description")) await library.put("text", { targetId: binding.mediaId, role: "description", language: "", original: stream.description, edited: null, cues: [] });
       await saveSettings();
@@ -388,12 +418,12 @@ export async function createMediaPlayer(profile, dependencies = {}) {
         }
         if (command.type === "recent") await openRecent(command.id, true);
         if (command.type === "select") await select(command.id);
-        if (command.type === "toggle" && currentId) {
-          if (!player.loaded) await select(currentId);
-          else {
+        if ((command.type === "toggle" || command.type === "pause") && currentId) {
+          if (!player.loaded && !(command.type === "pause" && command.value)) await select(currentId);
+          else if (player.loaded) {
             state.error = null;
-            const paused = !player.state.paused;
-            if (player.state.duration && player.state.time >= player.state.duration) { await player.request(["seek", 0, "absolute+exact"]); player.state.time = 0; }
+            const paused = command.type === "pause" ? command.value : !player.state.paused;
+            if (!paused && player.state.duration && player.state.time >= player.state.duration) { await player.request(["seek", 0, "absolute+exact"]); player.state.time = 0; }
             await player.request(["set_property", "pause", paused]);
             player.state.paused = paused;
             if (paused) speech.stop();
@@ -416,8 +446,9 @@ export async function createMediaPlayer(profile, dependencies = {}) {
         }
         if (command.type === "intervals") { state.backward = command.backward; state.forward = command.forward; await saveSettings(); }
         if (command.type === "audio-only") {
-          if (links.has(currentId) && command.value !== player.audioOnly) await selectLink(links.get(currentId), !player.state.paused, undefined, command.value);
-          else await player.setAudioOnly(command.value);
+          cancelVideo();
+          await player.setAudioOnly(command.value);
+          if (!command.value && player.loaded && links.has(currentId) && player.audioMaster !== false) startVideo(links.get(currentId));
           await saveSettings();
         }
       });
@@ -425,6 +456,7 @@ export async function createMediaPlayer(profile, dependencies = {}) {
     async close() {
       closing = true;
       resolverAbort.abort();
+      cancelVideo();
       clearInterval(interval);
       clearInterval(queueInterval);
       speech.close();
@@ -433,6 +465,6 @@ export async function createMediaPlayer(profile, dependencies = {}) {
       await saveSettings();
       await player.close();
     },
-    terminate() { resolverAbort.abort(); speech.close(); player.process?.kill(); },
+    terminate() { resolverAbort.abort(); cancelVideo(); speech.close(); player.process?.kill(); },
   };
 }

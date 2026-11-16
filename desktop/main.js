@@ -2,12 +2,13 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { join, resolve } from "node:path";
 import { createMediaPlayer } from "./media.js";
-import { mediaExtensions } from "../src/playback.ts";
+import { mediaExtensions, desktopShortcuts } from "../src/playback.ts";
 import { desktopProfile } from "./profile.js";
 import { createSourceBrowser } from "./source-browser.js";
 import { createDesktopTray } from "./tray.js";
 import { createWindowState } from "./window-state.js";
 import { libraryFailure, validLibraryRequest } from "../src/library-client.ts";
+import { createSystemControls } from "./system-controls.js";
 
 export async function runDesktop(assets, { development = false } = {}) {
   const origin = "http://127.0.0.1:47870";
@@ -78,6 +79,8 @@ export async function runDesktop(assets, { development = false } = {}) {
     let content = null;
     let backgroundTimer;
     let tray;
+    let systemControls;
+    const playbackSnapshot = media => ({ ...media.snapshot(), systemControls: systemControls?.snapshot() });
     function disposeContent() {
       const previous = content;
       content = null;
@@ -91,6 +94,7 @@ export async function runDesktop(assets, { development = false } = {}) {
       clearImmediate(backgroundTimer);
       await windowState.flush(window);
       tray?.dispose();
+      await systemControls?.close();
       try { await (await sourcesReady).close(); }
       catch (error) { console.error("Could not close sources", error); }
       try { await (await mediaReady).close(); }
@@ -129,8 +133,8 @@ export async function runDesktop(assets, { development = false } = {}) {
         const paths = window.openFileDialog({ multiple: false, title: "Choose mpv executable / Выберите исполняемый файл mpv", ...(process.platform === "win32" ? { filters: [{ name: "Executable", extensions: ["exe"] }] } : {}) });
         return { path: paths[0] ?? null };
       },
-      async getPlaybackState() { return (await mediaReady).snapshot(); },
-      async playbackCommand(command) { return (await mediaReady).command(command); },
+      async getPlaybackState() { return playbackSnapshot(await mediaReady); },
+      async playbackCommand(command) { const media = await mediaReady; await media.command(command); return playbackSnapshot(media); },
       async sleepCommand(command) { return (await mediaReady).sleepCommand(command); },
       async libraryRequest(request) {
         if (!validLibraryRequest(request)) throw new Error(libraryFailure(null));
@@ -165,6 +169,11 @@ export async function runDesktop(assets, { development = false } = {}) {
       createContent();
       window.setMinimized(false); window.show(); window.focus();
     };
+    void mediaReady.then(media => {
+      if (closing) return;
+      systemControls = createSystemControls({ getPlaybackState: () => media.snapshot(), command: command => media.command(command), openWindow: focusWindow, shortcuts: desktopShortcuts });
+      return systemControls.ready();
+    }).catch(error => console.error("Could not start system media controls", error));
     window.on("resize", () => {
       windowState.schedule(window);
       if (!content) return;
@@ -184,7 +193,7 @@ export async function runDesktop(assets, { development = false } = {}) {
     const media = await mediaReady;
     let sources;
     void sourcesReady.then(value => { sources = value; }).catch(() => {});
-    process.once("exit", () => { sources?.terminate(); media.terminate(); });
+    process.once("exit", () => { systemControls?.terminate(); sources?.terminate(); media.terminate(); });
     for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => { void requestWindowClose().finally(() => process.exit(0)); });
     app.run();
   } catch (error) {

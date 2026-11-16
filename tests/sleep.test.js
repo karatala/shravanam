@@ -1,10 +1,13 @@
 import { expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { mkdir, mkdtemp, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { AdaptiveSleepTimer, createSleepController, scheduleKey, sleepSignalFilter, spokenTime } from "../desktop/sleep.js";
 import { createSpeechService } from "../desktop/speech.js";
 import { defaultSleepSettings, defaultSpeechSettings, validSleepCommand } from "../src/sleep.ts";
+import { MpvPlayer } from "../desktop/mpv.js";
+
+const mpvBinary = Bun.which(process.platform === "win32" ? "mpv.exe" : "mpv");
 
 function simulation(settings = defaultSleepSettings, speech = defaultSpeechSettings) {
   const timer = new AdaptiveSleepTimer(settings, speech);
@@ -73,6 +76,52 @@ test("manual pause freezes countdown, seeking does not reset it, response restor
   expect(check.timer.phase).toBe("countdown");
   expect(check.timer.remainingSeconds).toBe(900);
   expect(check.context.volume).toBe(100);
+});
+
+test("a three-minute timer with two one-minute repeats stays playing until the third signal ends", () => {
+  const check = simulation({ ...structuredClone(defaultSleepSettings), firstMinutes: 3, repeatMinutes: 1, repeats: 2 });
+  check.start();
+  check.advance(185);
+  expect(check.context.playing).toBe(true);
+  expect(check.timer.phase).toBe("repeat");
+  check.advance(65);
+  expect(check.context.playing).toBe(true);
+  expect(check.timer.repeatsDone).toBe(1);
+  check.advance(65);
+  expect(check.context.playing).toBe(false);
+  expect(check.timer.phase).toBe("paused");
+  expect(check.effects.filter(effect => effect.type === "signal-start")).toHaveLength(3);
+  expect(check.timer.snapshot().marker).toEqual({ mediaId: "media-one", time: 180, pausedAt: 315 });
+});
+
+(mpvBinary ? test : test.skip)("mixing a sleep signal into native playback keeps the media timeline after noise ends and removal", async () => {
+  await mkdir(resolve("tmp"), { recursive: true });
+  const profile = await mkdtemp(join(resolve("tmp"), "sleep-filter-native-"));
+  await mkdir(join(profile, "mpv"));
+  await writeFile(join(profile, "mpv/mpv.conf"), "ao=null\n");
+  const fixture = join(profile, "silent.wav");
+  const silence = Buffer.alloc(8000 * 2 * 60 + 44);
+  silence.write("RIFF", 0); silence.writeUInt32LE(silence.length - 8, 4); silence.write("WAVEfmt ", 8);
+  silence.writeUInt32LE(16, 16); silence.writeUInt16LE(1, 20); silence.writeUInt16LE(1, 22);
+  silence.writeUInt32LE(8000, 24); silence.writeUInt32LE(16000, 28); silence.writeUInt16LE(2, 32); silence.writeUInt16LE(16, 34);
+  silence.write("data", 36); silence.writeUInt32LE(silence.length - 44, 40);
+  await writeFile(fixture, silence);
+  const player = new MpvPlayer(profile, () => {});
+  player.executablePath = mpvBinary;
+  try {
+    await player.load(fixture, 1, 30, true);
+    const before = await player.request(["get_property", "time-pos"]);
+    await player.request(["af", "add", sleepSignalFilter(0.4, 0)]);
+    await new Promise(resolve => setTimeout(resolve, 1200));
+    const afterNoise = await player.request(["get_property", "time-pos"]);
+    expect(afterNoise).toBeGreaterThan(before + 0.5);
+    await player.request(["af", "remove", "@shravanam-sleep"]);
+    await new Promise(resolve => setTimeout(resolve, 150));
+    expect(await player.request(["get_property", "time-pos"])).toBeGreaterThanOrEqual(afterNoise - 0.1);
+    expect(await player.request(["get_property", "pause"])).toBe(false);
+    expect(await player.request(["get_property", "path"])).toBe(fixture);
+    expect(player.loaded).toBe(true);
+  } finally { await player.close(); }
 });
 
 test("switching media restores the starting volume and resets the cycle", () => {

@@ -23,6 +23,13 @@ export class MpvPlayer {
     this.backend = null;
     this.audioOnly = true;
     this.executablePath = "";
+    this.mediaGeneration = 0;
+    this.videoGeneration = 0;
+    this.videoTrackId = null;
+    this.videoTracks = [];
+    this.audioMaster = false;
+    this.videoAdding = Promise.resolve();
+    this.audioHeaders = [];
   }
 
   async start() {
@@ -63,7 +70,7 @@ export class MpvPlayer {
       catch (error) { if (error.code !== "EEXIST") throw error; }
     }
     const socketPath = process.platform === "win32" ? `\\\\.\\pipe\\shravanam-${process.pid}-${randomBytes(12).toString("hex")}` : join(await mkdtemp(join(tmpdir(), "shravanam-mpv-")), "ipc");
-    let args = [`--config-dir=${configDirectory}`, `--input-ipc-server=${socketPath}`, "--idle=yes", "--keep-open=yes", "--terminal=no", "--input-terminal=no", "--force-window=no", "--resume-playback=no", "--save-position-on-quit=no", "--pause=yes", "--vid=no"];
+    let args = [`--config-dir=${configDirectory}`, `--input-ipc-server=${socketPath}`, "--idle=yes", "--keep-open=yes", "--terminal=no", "--input-terminal=no", "--force-window=no", "--resume-playback=no", "--save-position-on-quit=no", "--pause=yes", "--vid=no", "--network-timeout=15"];
     let bootstrap;
     if (this.backend === "iina") {
       // IINA applies command-line mpv properties only when it opens an input.
@@ -80,7 +87,7 @@ export class MpvPlayer {
       args = [
         "-recordPlaybackHistory", "NO", "-recordRecentFiles", "NO", "-resumeLastPosition", "NO", "-pauseWhenOpen", "YES", "-enableThumbnailPreview", "NO", "-enableAdvancedSettings", "NO",
         "-playlistAutoPlayNext", "NO", "-pauseWhenInactive", "NO", "-pauseWhenMinimized", "NO", "-quitWhenNoOpenedWindow", "NO", "-NSQuitAlwaysKeepsWindows", "NO",
-        `--mpv-input-ipc-server=${socketPath}`, "--mpv-idle=yes", "--mpv-keep-open=yes", "--mpv-pause=yes", "--mpv-mute=yes", "--mpv-vid=no",
+        `--mpv-input-ipc-server=${socketPath}`, "--mpv-idle=yes", "--mpv-keep-open=yes", "--mpv-pause=yes", "--mpv-mute=yes", "--mpv-vid=no", "--mpv-network-timeout=15",
         "--mpv-resume-playback=no", "--mpv-save-position-on-quit=no", bootstrap,
       ];
     }
@@ -206,17 +213,18 @@ export class MpvPlayer {
     if (!this.closed && !this.starting) this.onChange("player-closed");
   }
 
-  request(command, timeout = 5000) {
+  request(command, timeout = 5000, asynchronous = false) {
     if (!this.socket || this.socket.destroyed) return Promise.reject(new Error("mpv is not connected"));
     const requestId = ++this.sequence;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.pending.delete(requestId); reject(new Error("mpv command timed out")); }, timeout);
+      const timer = timeout > 0 ? setTimeout(() => { this.pending.delete(requestId); reject(new Error("mpv command timed out")); }, timeout) : null;
       this.pending.set(requestId, { resolve, reject, timer });
-      this.socket.write(JSON.stringify({ command, request_id: requestId }) + "\n");
+      this.socket.write(JSON.stringify({ command, request_id: requestId, ...(asynchronous ? { async: true } : {}) }) + "\n");
     });
   }
 
   async setAudioOnly(audioOnly) {
+    if (audioOnly) this.videoGeneration++;
     if (this.socket && !this.socket.destroyed) {
       if (this.backend === "iina") {
         await this.request(["set_property", "cache", "yes"]);
@@ -225,12 +233,85 @@ export class MpvPlayer {
         await this.request(["set_property", "demuxer-max-back-bytes", (audioOnly ? 8 : 32) * 1024 * 1024]);
         await this.request(["set_property", "hwdec", "auto-safe"]);
       }
-      await this.request(["set_property", "vid", audioOnly ? "no" : "auto"]);
+      await this.request(["set_property", "vid", audioOnly || (this.audioMaster && this.videoTrackId === null) ? "no" : this.videoTrackId ?? "auto"]);
+      if (audioOnly) {
+        const tracks = this.videoTracks;
+        this.videoTracks = [];
+        this.videoTrackId = null;
+        await this.removeVideoTracks(tracks, this.mediaGeneration, this.socket);
+      }
     }
     this.audioOnly = audioOnly;
   }
 
+  async removeVideoTracks(tracks, mediaGeneration, socket) {
+    for (const track of tracks) {
+      if (socket !== this.socket || mediaGeneration !== this.mediaGeneration) return;
+      if (track.removed) continue;
+      track.removed = true;
+      try { await this.request([`${track.type === "sub" ? "sub" : track.type}-remove`, track.id]); }
+      catch { /* A simultaneous disable or source end can already have removed this track. */ }
+    }
+  }
+
+  async addVideo(stream) {
+    if (!this.loaded || this.audioOnly) return false;
+    const mediaGeneration = this.mediaGeneration;
+    const videoGeneration = ++this.videoGeneration;
+    const socket = this.socket;
+    const previous = this.videoAdding;
+    let finish;
+    this.videoAdding = new Promise(resolve => { finish = resolve; });
+    let changedHeaders = false;
+    let added = [];
+    let activated = false;
+    const sameMedia = () => socket === this.socket && mediaGeneration === this.mediaGeneration;
+    const wanted = () => sameMedia() && videoGeneration === this.videoGeneration && this.loaded && !this.audioOnly;
+    try {
+      await previous;
+      if (!wanted()) return false;
+      const previousTracks = await this.request(["get_property", "track-list"]);
+      if (!wanted()) return false;
+      const previousIds = new Set(previousTracks.map(track => `${track.type}:${track.id}`));
+      changedHeaders = JSON.stringify(stream.headers) !== JSON.stringify(this.audioHeaders);
+      if (changedHeaders) await this.request(["set_property", "http-header-fields", stream.headers]);
+      if (!wanted()) return false;
+      // A JS timeout cannot cancel this native operation. Drain its eventual reply for stale-track cleanup.
+      await this.request(["video-add", stream.url, "auto"], 0, true);
+      if (!sameMedia()) return false;
+      const tracks = await this.request(["get_property", "track-list"]);
+      if (!sameMedia()) return false;
+      added = tracks.filter(track => !previousIds.has(`${track.type}:${track.id}`) && track.external && track["external-filename"] === stream.url && ["video", "audio", "sub"].includes(track.type));
+      const track = added.find(item => item.type === "video");
+      if (!wanted() || !track) { if (!wanted()) return false; throw new Error("The video track did not load"); }
+      this.videoTracks = added;
+      this.videoTrackId = track.id;
+      await this.request(["set_property", "video-sync", "audio"]);
+      if (!wanted()) return false;
+      await this.request(["set_property", "vid", track.id]);
+      if (!wanted()) return false;
+      activated = true;
+      return true;
+    } finally {
+      try {
+        if (!activated && added.length) {
+          await this.removeVideoTracks(added, mediaGeneration, socket);
+          if (sameMedia() && this.videoTracks === added) { this.videoTracks = []; this.videoTrackId = null; }
+        }
+      } finally {
+        try { if (changedHeaders && sameMedia()) await this.request(["set_property", "http-header-fields", this.audioHeaders]); }
+        finally { finish(); }
+      }
+    }
+  }
+
   async load(path, speed, position = 0, autoplay = true, stream = null) {
+    this.mediaGeneration++;
+    this.videoGeneration++;
+    this.videoTrackId = null;
+    this.videoTracks = [];
+    this.audioMaster = Boolean(stream && !stream.audio && !stream.hasVideo);
+    this.audioHeaders = stream?.headers ?? [];
     this.loaded = false;
     this.ended = false;
     await this.start();
@@ -252,6 +333,7 @@ export class MpvPlayer {
       }
       await this.request(["loadfile", path, "replace"]);
       await loaded;
+      await this.request(["set_property", "vid", this.audioOnly || this.audioMaster ? "no" : "auto"]);
       if (stream?.audio) {
         await this.request(["set_property", "http-header-fields", stream.audio.headers]);
         await this.request(["audio-add", stream.audio.url, "select"], 30000);

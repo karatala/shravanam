@@ -8,6 +8,9 @@ import { validSourceCommand, sourceFailure } from "../src/sources.ts";
 import { createSourceBrowser } from "./source-browser.js";
 import { libraryFailure, validLibraryRequest } from "../src/library-client.ts";
 import { validSleepCommand } from "../src/sleep.ts";
+import { desktopShortcuts } from "../src/playback.ts";
+import { createSystemControls } from "./system-controls.js";
+import { execFile } from "node:child_process";
 
 export function createBrowserHost(origin) {
   const token = randomBytes(32).toString("hex");
@@ -16,12 +19,20 @@ export function createBrowserHost(origin) {
   let mediaInstance;
   let application;
   let sourcesInstance;
+  let systemControls;
+  const playbackSnapshot = media => ({ ...media.snapshot(), systemControls: systemControls?.snapshot() });
   const sourcesReady = mediaReady.then(media => createSourceBrowser({ profile, origin, media, async getApplication() {
     if (!application) { const { Application } = await import("@webviewjs/webview"); application = new Application(); application.run(); }
     return application;
   } }));
   void sourcesReady.then(sources => { sourcesInstance = sources; }).catch(() => {});
-  void mediaReady.then(media => { mediaInstance = media; return media.restoreLast(); }).catch(error => console.error("Cannot restore local player", error));
+  void mediaReady.then(media => {
+    mediaInstance = media;
+    if (closing) return;
+    systemControls = createSystemControls({ getPlaybackState: () => media.snapshot(), command: command => media.command(command), shortcuts: desktopShortcuts, openWindow: () => new Promise((resolve, reject) => execFile("rundll32.exe", ["url.dll,FileProtocolHandler", origin], { windowsHide: true }, error => error ? reject(error) : resolve())) });
+    void systemControls.ready().catch(error => console.error("Could not start system media controls", error));
+    return media.restoreLast();
+  }).catch(error => console.error("Cannot restore local player", error));
   const pickerAbort = new AbortController();
   let choosing = false;
   let closing = false;
@@ -47,9 +58,9 @@ export function createBrowserHost(origin) {
           try { return json(await media.libraryRequest(body.request)); }
           catch (error) { console.error("Library action failed", error); return json({ error: libraryFailure(error) }, 400); }
         }
-        if (body.method === "state") return json(media.snapshot());
+        if (body.method === "state") return json(playbackSnapshot(media));
         if (body.method === "sleep" && validSleepCommand(body.command)) return json(await media.sleepCommand(body.command));
-        if (body.method === "command" && validPlaybackCommand(body.command)) return json(await media.command(body.command));
+        if (body.method === "command" && validPlaybackCommand(body.command)) { await media.command(body.command); return json(playbackSnapshot(media)); }
         if (body.method === "choose" || body.method === "choose-mpv") {
           if (choosing) return json({ error: "picker" }, 409);
           choosing = true;
@@ -69,8 +80,9 @@ export function createBrowserHost(origin) {
     },
     async close() {
       closing = true; pickerAbort.abort();
+      await systemControls?.close();
       try { await (await sourcesReady).close(); } finally { application?.exit(); await (await mediaReady).close(); }
     },
-    terminate() { pickerAbort.abort(); sourcesInstance?.terminate(); mediaInstance?.terminate(); },
+    terminate() { pickerAbort.abort(); systemControls?.terminate(); sourcesInstance?.terminate(); mediaInstance?.terminate(); },
   };
 }

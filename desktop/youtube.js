@@ -65,10 +65,17 @@ export function downloaderArguments() {
   return args;
 }
 
-export async function resolveYouTube(source, audioOnly, signal) {
+export function resolveYouTube(source, audioOnly, signal) { return resolveStreams(source, audioOnly ? "audio" : "watch", signal); }
+
+export function resolveYouTubeVideo(source, signal) { return resolveStreams(source, "video", signal); }
+
+async function resolveStreams(source, mode, signal) {
+  const audioOnly = mode === "audio";
+  const videoOnly = mode === "video";
   const executable = await findDownloader();
   // Metadata can contain streams that already return 403. Check selected formats before handing them to mpv.
-  const args = [...downloaderArguments(), "--check-formats", "--skip-download", "--dump-single-json", "-f", audioOnly ? "bestaudio[protocol=https]" : "bestvideo[protocol=https]+bestaudio[protocol=https]/best[protocol=https]", "-S", "res:1080,vcodec:h264", "--", source.url];
+  const format = audioOnly ? "bestaudio[protocol=https]/best[protocol=https]" : videoOnly ? "bestvideo[protocol=https]/best[protocol=https]" : "bestvideo[protocol=https]+bestaudio[protocol=https]/best[protocol=https]";
+  const args = [...downloaderArguments(), "--check-formats", "--skip-download", "--dump-single-json", "-f", format, "-S", "res:1080,vcodec:h264", "--", source.url];
   try {
     const stdout = await new Promise((resolve, reject) => {
       execFile(executable, args, { signal, timeout: 60000, killSignal: "SIGKILL", maxBuffer: 8 * 1024 * 1024, windowsHide: true }, (error, output) => {
@@ -80,11 +87,11 @@ export async function resolveYouTube(source, audioOnly, signal) {
     if (info.id !== source.videoId || info._type === "playlist") throw new Error("Unexpected source");
     if (info.is_live || info.live_status === "is_upcoming") throw Object.assign(new Error("Live streams are not supported yet"), { code: "youtube-live" });
     const formats = info.requested_formats ?? [info];
-    const primary = audioOnly ? formats.find(format => format.vcodec === "none" && format.acodec !== "none") : formats.find(format => format.vcodec && format.vcodec !== "none");
+    const primary = audioOnly ? formats.find(format => format.acodec && format.acodec !== "none") : formats.find(format => format.vcodec && format.vcodec !== "none");
     if (!primary) throw new Error("No usable media stream");
-    const audio = !audioOnly && primary.acodec === "none" ? formats.find(format => format.acodec && format.acodec !== "none") : null;
-    if (!audioOnly && primary.acodec === "none" && !audio) throw new Error("No audio stream");
-    return { ...streamInfo(primary, info.http_headers), audio: audio ? streamInfo(audio, info.http_headers) : null, title: typeof info.title === "string" ? info.title.slice(0, 300) : source.videoId, chapters: Array.isArray(info.chapters) ? info.chapters.slice(0, 2000) : [], description: typeof info.description === "string" ? info.description.slice(0, 1000000) : "" };
+    const audio = !audioOnly && !videoOnly && primary.acodec === "none" ? formats.find(format => format.acodec && format.acodec !== "none") : null;
+    if (!audioOnly && !videoOnly && primary.acodec === "none" && !audio) throw new Error("No audio stream");
+    return { ...streamInfo(primary, info.http_headers), hasVideo: Boolean(primary.vcodec && primary.vcodec !== "none"), audio: audio ? streamInfo(audio, info.http_headers) : null, title: typeof info.title === "string" ? info.title.slice(0, 300) : source.videoId, chapters: Array.isArray(info.chapters) ? info.chapters.slice(0, 2000) : [], description: typeof info.description === "string" ? info.description.slice(0, 1000000) : "" };
   } catch (error) {
     throw Object.assign(new Error("Cannot open YouTube media"), { code: error.code === "youtube-live" ? error.code : "youtube", mediaName: source.url });
   }

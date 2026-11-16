@@ -47,9 +47,10 @@
   $effect(() => { mpvPath = savedMpvPath; });
   const current = $derived(playback.items.find(item => item.id === playback.currentId));
   const errorText = $derived.by(() => {
-    const failure = interfaceError ?? playback.error;
+    const failure = interfaceError ?? playback.error ?? playback.videoError;
     if (!failure) return "";
     const name = failure.name ? ` «${failure.name}»` : "";
+    if (failure.code === "video") return text("Cannot open video. Audio playback continues. Check the connection and yt-dlp, then select Listen and Watch to retry.", "Не удалось подключить видео. Звук продолжает воспроизводиться. Проверьте соединение и yt-dlp, затем переключите «Слушать» и «Смотреть» для повторной попытки.");
     if (failure.code === "youtube-link") return text(`Cannot open link${name}. Paste an HTTPS link to one YouTube video, for example https://www.youtube.com/watch?v=dQw4w9WgXcQ. Playlist-only links and other sites are not supported yet.`, `Не удалось открыть ссылку${name}. Вставьте HTTPS-ссылку на один ролик YouTube, например https://www.youtube.com/watch?v=dQw4w9WgXcQ. Ссылки только на плейлист и другие сайты пока не поддерживаются.`);
     if (failure.code === "missing-downloader") return text("Cannot open YouTube: yt-dlp was not found. Add a current yt-dlp executable to PATH, or update IINA in Applications, then open the link again.", "Не удалось открыть YouTube: yt-dlp не найден. Добавьте актуальный исполняемый файл yt-dlp в PATH или обновите IINA в папке «Программы», затем откройте ссылку снова.");
     if (failure.code === "youtube") return text(`Cannot open YouTube${name}. Check the connection and that the video plays without signing in. Update yt-dlp (or IINA if using its copy) and ensure a supported JavaScript runtime, for example Deno, is installed, then open the link again.`, `Не удалось открыть YouTube${name}. Проверьте соединение и доступность ролика без входа в аккаунт. Обновите yt-dlp (или IINA, если используется его копия) и проверьте наличие поддерживаемой среды JavaScript, например Deno, затем откройте ссылку снова.`);
@@ -242,6 +243,7 @@
     </div>
   {/if}
   {#if errorText}<p class="error" role="alert">{errorText}</p>{/if}
+  {#if playback.videoLoading}<p class="hint" role="status">{text("Opening video. Audio keeps playing; the picture will join at the current position.", "Подключение видео. Звук продолжает идти; изображение появится на текущей позиции.")}</p>{/if}
   {#if nativeDesktop}
     <details open={playerPathFailure}>
       <summary>{text("Player settings", "Настройки плеера")}</summary>
@@ -251,6 +253,11 @@
         <button type="submit" class="action" disabled={!ready || playback.loading || savingMpvPath} onpointerup={releasePointerFocus}>{text("Apply", "Применить")}</button>
       </form>
       <p class="hint">{text("Leave empty for automatic search. After applying the path, press Play or reopen the file. If the player is already running, restart Shravanam to use the new path.", "Оставьте поле пустым для автоматического поиска. После применения пути нажмите «Воспроизвести» или откройте файл снова. Если плеер уже запущен, перезапустите Shravanam для использования нового пути.")}</p>
+      {#if playback.systemControls?.supported}
+        <p class="hint">{text("System media controls", "Системное управление")}: {playback.systemControls.available ? text("connected", "подключено") : text("unavailable", "недоступно")}. {text("Media Previous/Next use the configured time jumps.", "Медиаклавиши «Назад/Вперёд» используют заданные интервалы перемотки.")}</p>
+        {#each playback.systemControls.shortcuts as shortcut}<p class="hint">{shortcut.key}: {({ toggle: text("Play/Pause", "Пауза/воспроизведение"), back: text("Seek backward", "Перемотка назад"), forward: text("Seek forward", "Перемотка вперёд"), open: text("Open window", "Открыть окно") } as Record<string, string>)[shortcut.action]}{shortcut.registered ? "" : text(" (unavailable or already in use)", " (недоступно или уже занято)")}</p>{/each}
+        {#if playback.systemControls.error}<p class="error" role="alert">{playback.systemControls.error.split(" / ")[russian ? 1 : 0] ?? playback.systemControls.error}</p>{/if}
+      {/if}
     </details>
   {/if}
   {#if !nativePlayer}<video bind:this={mediaElement} class:audio-only={current?.kind !== "video"} playsinline preload="metadata"><track kind="captions" /></video>{/if}
