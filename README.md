@@ -25,12 +25,14 @@ Run these commands when you want to install, check, or build the base:
 | `bun run dev` | Build UI in `tmp/web`; serve browser controls on `http://127.0.0.1:3000` with Bun-owned files and mpv playback |
 | `bun run dev:web` | Use the same development URL with standalone browser/PWA playback and browser data tools |
 | `bun run dev:desktop` | Build development UI with source maps, then open the native desktop window with DevTools and tray |
+| `bun run dev:android` | Serve development UI over the LAN on port 3001 with automatic reload for the Android debug app |
 | `bun run check` | Check Svelte and frontend TypeScript |
 | `bun run build` | Write the production web app and offline worker to `dist` |
 | `bun run preview` | Serve `dist` on `http://127.0.0.1:4173` for PWA checks |
 | `bun run desktop` | Open the existing `dist` app in the system WebView |
 | `bun run build:desktop` | Build web files and an unsigned native executable for the current system in `release` |
-| `bun run prepare:android` | Build web files, sync Capacitor, and apply the versioned Android player module |
+| `bun run prepare:android` | Build bundled web files, remove the LAN server URL, sync Capacitor, and apply the Android player module |
+| `bun run prepare:android:dev` | Prepare Android to load UI from the LAN server; accepts `--url http://192.168.1.10:3001` |
 | `bun run prepare:ios` | Build web files, create the iOS project if needed, and sync Capacitor |
 | `bun run open:android` / `bun run open:ios` | Open the generated native project in its IDE |
 
@@ -102,6 +104,19 @@ The mobile application ID is `org.karatala.shravanam`. Mobile preparation does n
 
 PWA URLs are relative, so the output can be hosted at a root or a subpath. No publication destination is configured. See [LOCAL_OFFLINE.md](LOCAL_OFFLINE.md).
 
+## Android LAN development
+
+Install the native debug app once, then update HTML, CSS, TypeScript, and Svelte through your computer without reinstalling the APK. The phone and computer must use the same reachable Wi-Fi network. Allow Bun through the firewall for private networks on port 3001. Use this mode only for development on a trusted network.
+
+1. Run `bun run dev:android` and keep its terminal open. It prints the available LAN URLs and preparation commands. In VS Code, `Debug Android LAN` or `Dev Android LAN` starts the same server.
+2. In another terminal, run `bun run prepare:android:dev`. It selects the address when there is one private IPv4 address. With multiple addresses, use the command printed for the Wi-Fi adapter, for example `bun run prepare:android:dev --url http://192.168.1.10:3001`. `SHRAVANAM_ANDROID_DEV_URL` is an optional local environment override. Do not commit a local address.
+3. Run `bun run open:android`, then build and run the debug app from Android Studio on the phone. The app loads its interface from the printed URL. `127.0.0.1` on the phone refers to the phone, so use the computer's LAN address.
+4. Edit the interface source. After a successful rebuild, connected interfaces reload automatically. Development source maps are included. Failed builds keep the current interface open and report the error in the server terminal.
+
+The Android service still owns local-file playback. The interface reconnects to that service after reload; playback continuity needs a device check. This mode does not add Android YouTube playback or desktop features. Java code, Capacitor plugins, permissions, or a changed server address require preparation and a new native build/install. A full page reload clears unsaved form text.
+
+If the interface cannot load, check the server, Wi-Fi address, port, and firewall, then reopen the app. There is no automatic bundled-UI fallback in this mode. To return to bundled assets, run `bun run prepare:android` and rebuild/install the app from Android Studio. Stopping the LAN server removes access to the debug interface; it does not send Stop to the Android player. See [Capacitor Live Reload](https://capacitorjs.com/docs/guides/live-reload).
+
 ## VS Code debugging
 
 Desktop and Android are the first native targets. Develop and debug the shared interface in a desktop browser.
@@ -114,7 +129,7 @@ After installing dependencies, select `Debug app` in Run and Debug, then press F
 
 Use either F5 or the `Dev` task to start the server, not both. Stop the server with Ctrl+C in its terminal. For a server started through `Dev`, you can also use `Tasks: Terminate Task`. Stop any other server on port 3000 before starting a new one. The Bun server does not accept Rachana's Vite `--host` argument.
 
-Shared tasks: `Dev Desktop`, `Dev`, `Dev Web (PWA)`, `Check`, `Build`, `Preview`, `Run Desktop`, `Build Desktop`, `Prepare Android`, and `Open Android`. `Debug Web (PWA)` is the matching terminal launch for `dev:web`. `Preview` and `Run Desktop` first run `Build`. `Prepare Android` builds web output and syncs the native project; use `Open Android` afterward. Personal VS Code settings remain ignored.
+Shared tasks: `Dev Desktop`, `Dev`, `Dev Web (PWA)`, `Dev Android LAN`, `Check`, `Build`, `Preview`, `Run Desktop`, `Build Desktop`, `Prepare Android`, and `Open Android`. `Debug Web (PWA)` is the matching terminal launch for `dev:web`. `Preview` and `Run Desktop` first run `Build`. `Prepare Android` builds web output and syncs the native project; use `Open Android` afterward. Personal VS Code settings remain ignored.
 
 Default browser debugging controls actual mpv playback through Bun. Native window behavior, tray controls, global shortcuts, and Android background behavior need their own platform checks.
 

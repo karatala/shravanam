@@ -21,6 +21,13 @@
       "request": "launch",
       "command": "bun run dev:web",
       "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Debug Android LAN",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "bun run dev:android",
+      "cwd": "${workspaceFolder}"
     }
   ]
 }

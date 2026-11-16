@@ -134,6 +134,7 @@ Reference: [mpv manual](https://mpv.io/manual/stable/).
 ### [ ] Android playback and device checks
 
 - ✅ Add a versioned Android library, plugin registration overlay, and repeatable integration in `prepare:android`.
+- ✅ Add Android LAN interface development on port 3001 with automatic reload, temporary Capacitor server configuration, and a standard preparation path back to bundled assets.
 - ✅ Keep ExoPlayer, state, and five-second progress checkpoints in MediaSessionService. Reconnect the UI to an active service without reopening its media.
 - ✅ Play audio tracks only and disable video/text tracks. Persist settings and per-file positions in private SharedPreferences, keyed by URI and reported size. Recent descriptors survive service termination; the active file list remains service-session-only.
 - ✅ Add media notification preferences for play/pause and time jumps; map previous/next commands to time jumps. Enable audio-focus handling, headphone-disconnect pause, and playback wake lock.
@@ -141,6 +142,7 @@ Reference: [mpv manual](https://mpv.io/manual/stable/).
 - [ ] Open MP3/M4B and a video with an audio track. Check speed, configured intervals, end-of-file replay, saved position, and no video playback on Android in this stage.
 - [ ] Check single/multiple document selection, cancellation, Open With and Share during cold/warm launch, names with spaces/non-Latin characters, temporary grants, and revoked file access. Confirm that opening the UI again does not restart an already accepted intent.
 - [ ] Lock the screen, hide/recreate the interface, remove the active app task, and reopen through the notification. Check continuous audio, one playback instance, correct position, and no unintended autoplay when the service is no longer alive.
+- [ ] Install the LAN debug variant, edit the interface, and check automatic reload with uninterrupted audio and the correct position. Repeat after backgrounding and restarting the dev server. Return to bundled assets with `prepare:android` and check offline startup.
 - [ ] Check notification and lock-screen controls, headset play/pause and next/previous time jumps, headphone removal, and audio-focus interruptions. Record device-specific restrictions.
 - [ ] Add native video display and explicit audio/video switching in a later step.
 - [ ] Add media-button playback resumption after service termination when persistent library state exists.

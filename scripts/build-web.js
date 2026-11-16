@@ -3,8 +3,8 @@ import { mkdir, readFile, writeFile, copyFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { compile } from "svelte/compiler";
 
-export async function buildWeb(development = false) {
-  const outputDirectory = resolve(development ? "tmp/web" : "dist");
+export async function buildWeb(development = false, directory = development ? "tmp/web" : "dist") {
+  const outputDirectory = resolve(directory);
   const result = await Bun.build({
     entrypoints: ["src/main.ts"],
     outdir: outputDirectory,

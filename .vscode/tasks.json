@@ -29,6 +29,15 @@
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
     },
     {
+      "label": "Dev Android LAN",
+      "type": "process",
+      "command": "bun",
+      "args": ["run", "dev:android"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
       "label": "Check",
       "type": "process",
       "command": "bun",
