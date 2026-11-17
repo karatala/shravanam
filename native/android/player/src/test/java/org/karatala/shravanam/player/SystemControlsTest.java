@@ -7,12 +7,15 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.media.AudioManager;
+import android.os.CancellationSignal;
 import androidx.annotation.OptIn;
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.Player;
 import androidx.media3.common.SimpleBasePlayer;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.session.MediaSession;
 import androidx.media3.test.utils.FakePlayer;
 import com.google.common.collect.ImmutableList;
 import java.lang.reflect.Constructor;
@@ -137,6 +140,60 @@ public final class SystemControlsTest {
         assertTrue(this.service.paused());
         this.controls.stop();
         assertFalse((boolean) ReflectionHelpers.getField(this.service, "openingFile"));
+        assertFalse(this.controls.getPlayWhenReady());
+    }
+
+    @Test public void metadataOnlyRequestsDoNotLoadOrReplaceTheActiveSource() {
+        MediaFile saved = MediaFile.youtube(YouTubeSource.parse("https://youtu.be/dQw4w9WgXcQ"), "Saved video");
+        android.content.SharedPreferences settings = ReflectionHelpers.getField(this.service, "settings");
+        settings.edit().putString("last-media", saved.id).putString("recent-youtube", new org.json.JSONArray().put(saved.stored()).toString()).putLong("position." + saved.id, 72000).commit();
+        PlaybackService preview = Mockito.spy(this.service);
+        Mockito.doReturn("YouTube").when(preview).getString(R.string.shravanam_source_youtube);
+        MediaSession.MediaItemsWithStartPosition result = preview.resumptionItems(false);
+        assertEquals(72000, result.startPositionMs);
+        assertEquals(saved.id, result.mediaItems.get(0).mediaId);
+        assertTrue(result.mediaItems.get(0).localConfiguration == null);
+        assertFalse((boolean) ReflectionHelpers.getField(preview, "openingFile"));
+        assertFalse((boolean) ReflectionHelpers.getField(preview, "resolvingYouTube"));
+        assertFalse((boolean) ReflectionHelpers.getField(preview, "resumeForeground"));
+        assertTrue(ReflectionHelpers.getField(preview, "resuming") == null);
+        assertEquals("a".repeat(64), this.audio.getCurrentMediaItem().mediaId);
+        MediaSession.ControllerInfo controller = Mockito.mock(MediaSession.ControllerInfo.class);
+        Mockito.when(controller.getUid()).thenReturn(android.os.Process.myUid() + 1);
+        preview.onGetSession(controller);
+        assertFalse((boolean) ReflectionHelpers.getField(preview, "startupRestored"));
+    }
+
+    @Test public void resumptionPublishesSavedPositionWhileKeepingTheSignedStreamOutOfThePlaceholder() throws Exception {
+        this.audio.clearMediaItems();
+        this.audio.stop();
+        ReflectionHelpers.setField(this.service, "current", null);
+        MediaFile saved = MediaFile.youtube(YouTubeSource.parse("https://youtu.be/dQw4w9WgXcQ"), "Saved video");
+        ReflectionHelpers.setField(this.service, "resuming", saved);
+        ReflectionHelpers.setField(this.service, "resumeItem", new MediaItem.Builder().setMediaId(saved.id).setMediaMetadata(new MediaMetadata.Builder().setTitle(saved.name).build()).build());
+        ReflectionHelpers.setField(this.service, "resumePosition", 45000L);
+        ReflectionHelpers.setField(this.service, "resolvingYouTube", true);
+        ReflectionHelpers.setField(this.service, "selectionAutoplay", true);
+        ReflectionHelpers.callInstanceMethod(this.controls, "refresh");
+        assertEquals(Player.STATE_BUFFERING, this.controls.getPlaybackState());
+        assertEquals(45000, this.controls.getCurrentPosition());
+        assertEquals(saved.id, this.controls.getCurrentMediaItem().mediaId);
+        assertTrue(this.controls.getCurrentMediaItem().localConfiguration == null);
+        assertFalse(this.controls.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM));
+        assertEquals(0, this.audio.getMediaItemCount());
+        this.controls.prepare();
+        assertEquals(Player.STATE_IDLE, this.audio.getPlaybackState());
+        this.controls.pause();
+        assertTrue(this.service.snapshot().getBoolean("paused"));
+        assertEquals(45, this.service.snapshot().getDouble("time"), 0);
+        this.controls.play();
+        assertTrue((boolean) ReflectionHelpers.getField(this.service, "selectionAutoplay"));
+        CancellationSignal read = new CancellationSignal();
+        ReflectionHelpers.setField(this.service, "pendingRead", read);
+        this.controls.stop();
+        assertTrue(read.isCanceled());
+        assertTrue(ReflectionHelpers.getField(this.service, "resuming") == null);
+        assertEquals(0, this.audio.getMediaItemCount());
         assertFalse(this.controls.getPlayWhenReady());
     }
 }

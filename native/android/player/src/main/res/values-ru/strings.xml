@@ -1,4 +1,11 @@
 <resources>
+    <string name="shravanam_resume_loading">Возобновление с сохранённой позиции…</string>
+    <string name="shravanam_resume_unavailable">Не удалось возобновить. Откройте Shravanam и выберите файл снова через «Открыть файлы».</string>
+    <string name="shravanam_resume_background">Android не разрешил возобновить звук в фоне. Откройте Shravanam и нажмите «Пуск».</string>
+    <string name="shravanam_resume_failed">Не удалось возобновить звук. Откройте Shravanam, проверьте соединение или доступ к файлу и снова нажмите «Пуск».</string>
+    <string name="shravanam_resume_play">Пуск</string>
+    <string name="shravanam_resume_pause">Пауза</string>
+    <string name="shravanam_resume_stop">Стоп</string>
     <string name="shravanam_playback_channel">Воспроизведение</string>
     <string name="shravanam_source_local">Локальный файл</string>
     <string name="shravanam_source_youtube">YouTube</string>

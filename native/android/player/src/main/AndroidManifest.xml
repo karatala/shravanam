@@ -5,6 +5,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <application android:extractNativeLibs="true">
+        <receiver android:name="org.karatala.shravanam.player.ResumeMediaButtonReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
         <activity android:name="org.karatala.shravanam.player.NativeVideoActivity" android:exported="false" android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
         <activity android:name="org.karatala.shravanam.player.SourceBrowserActivity" android:exported="false" />
         <service android:name="org.karatala.shravanam.player.PlaybackService" android:exported="true" android:foregroundServiceType="mediaPlayback" android:stopWithTask="false">

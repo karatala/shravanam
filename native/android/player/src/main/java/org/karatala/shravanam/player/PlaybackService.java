@@ -1,18 +1,29 @@
 package org.karatala.shravanam.player;
 
 import android.app.PendingIntent;
+import android.annotation.SuppressLint;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.content.pm.ServiceInfo;
 import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Build;
+import android.os.CancellationSignal;
 import android.util.Log;
+import android.view.KeyEvent;
+import android.widget.Toast;
 import androidx.annotation.OptIn;
 import androidx.core.content.ContextCompat;
+import androidx.core.app.NotificationCompat;
+import androidx.core.app.NotificationManagerCompat;
+import androidx.core.app.ServiceCompat;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.common.ForwardingSimpleBasePlayer;
@@ -29,6 +40,7 @@ import androidx.media3.session.CommandButton;
 import androidx.media3.session.DefaultMediaNotificationProvider;
 import androidx.media3.session.MediaSession;
 import androidx.media3.session.MediaSessionService;
+import androidx.media3.session.MediaStyleNotificationHelper;
 import androidx.media3.session.SessionCommands;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
@@ -82,6 +94,18 @@ public final class PlaybackService extends MediaSessionService {
     private boolean changingMedia;
     private boolean openingFile;
     private long selectionVersion;
+    private MediaFile resuming;
+    private MediaItem resumeItem;
+    private long resumePosition;
+    private PlaybackException resumeError;
+    private boolean resumeForeground;
+    private boolean resumePlayRequested;
+    private MediaFile resumeNotificationFile;
+    private Runnable resumeTimeout;
+    private String startupId = "";
+    private boolean dispatchingPlay;
+    private CancellationSignal pendingRead;
+    private boolean startupRestored;
     private final BroadcastReceiver noisy = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             if (!AudioManager.ACTION_AUDIO_BECOMING_NOISY.equals(intent.getAction())) return;
@@ -135,7 +159,7 @@ public final class PlaybackService extends MediaSessionService {
         this.setMediaNotificationProvider(new DefaultMediaNotificationProvider.Builder(this).setChannelId("shravanam.playback").setChannelName(R.string.shravanam_playback_channel).build());
         MediaSession.Builder builder = new MediaSession.Builder(this, this.controls).setShowPlayButtonIfPlaybackIsSuppressed(true).setCallback(new MediaSession.Callback() {
             @Override public MediaSession.ConnectionResult onConnect(MediaSession session, MediaSession.ControllerInfo controller) {
-                if (!controller.isTrusted()) return MediaSession.ConnectionResult.reject();
+                if (!controller.isTrusted() && !session.isMediaNotificationController(controller)) return MediaSession.ConnectionResult.reject();
                 Player.Commands allowed = new Player.Commands.Builder().addAll(
                     Player.COMMAND_PLAY_PAUSE, Player.COMMAND_PREPARE, Player.COMMAND_STOP,
                     Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM, Player.COMMAND_SEEK_BACK, Player.COMMAND_SEEK_FORWARD,
@@ -143,10 +167,19 @@ public final class PlaybackService extends MediaSessionService {
                     Player.COMMAND_GET_CURRENT_MEDIA_ITEM, Player.COMMAND_GET_TIMELINE, Player.COMMAND_GET_METADATA, Player.COMMAND_GET_AUDIO_ATTRIBUTES, Player.COMMAND_GET_TRACKS).build();
                 return MediaSession.ConnectionResult.accept(SessionCommands.EMPTY, allowed);
             }
+            @Override public ListenableFuture<MediaSession.MediaItemsWithStartPosition> onPlaybackResumption(MediaSession session, MediaSession.ControllerInfo controller, boolean isForPlayback) {
+                return Futures.immediateFuture(PlaybackService.this.resumptionItems(isForPlayback));
+            }
+            @Override public boolean onMediaButtonEvent(MediaSession session, MediaSession.ControllerInfo controller, Intent intent) {
+                return intent.getBooleanExtra(ResumeMediaButtonReceiver.RESUME_REQUEST, false) && intent.getLongExtra(ResumeMediaButtonReceiver.RESUME_VERSION, PlaybackService.this.selectionVersion) != PlaybackService.this.selectionVersion;
+            }
         });
         Intent launch = this.getPackageManager().getLaunchIntentForPackage(this.getPackageName());
         if (launch != null) builder.setSessionActivity(PendingIntent.getActivity(this, 0, launch.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
         this.session = builder.build();
+        this.setListener(new MediaSessionService.Listener() {
+            @Override public void onForegroundServiceStartNotAllowedException() { PlaybackService.this.resumePlayRequested = true; PlaybackService.this.failResumption("play", null); }
+        });
         this.updateButtons();
         // Also cancel pending autoplay before the first file/URL has reached ExoPlayer.
         ContextCompat.registerReceiver(this, this.noisy, new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY), ContextCompat.RECEIVER_NOT_EXPORTED);
@@ -168,23 +201,182 @@ public final class PlaybackService extends MediaSessionService {
                 else Log.e("Shravanam", "Android playback failed", failure);
                 PlaybackService.this.error = PlaybackService.failure(failure.errorCode == PlaybackException.ERROR_CODE_IO_NO_PERMISSION ? "access" : "play", PlaybackService.this.current == null ? null : PlaybackService.this.current.name);
                 if (PlaybackService.this.current != null && PlaybackService.this.current.youtube()) PlaybackService.this.settings.edit().putLong("position." + PlaybackService.this.current.id, Math.max(0, PlaybackService.this.player.getCurrentPosition())).apply();
+                PlaybackService.this.failResumption("play", PlaybackService.this.current == null ? null : PlaybackService.this.current.name);
             }
             @Override public void onEvents(Player player, Player.Events events) {
-                if (events.containsAny(Player.EVENT_POSITION_DISCONTINUITY, Player.EVENT_PLAY_WHEN_READY_CHANGED, Player.EVENT_PLAYBACK_STATE_CHANGED, Player.EVENT_PLAYBACK_PARAMETERS_CHANGED)) PlaybackService.this.saveProgress();
+                if (events.containsAny(Player.EVENT_POSITION_DISCONTINUITY, Player.EVENT_PLAY_WHEN_READY_CHANGED, Player.EVENT_PLAYBACK_STATE_CHANGED, Player.EVENT_PLAYBACK_PARAMETERS_CHANGED)) {
+                    boolean flush = !PlaybackService.this.changingMedia && ((!player.getPlayWhenReady() && events.contains(Player.EVENT_PLAY_WHEN_READY_CHANGED)) || player.getPlaybackState() == Player.STATE_ENDED);
+                    PlaybackService.this.saveProgress(flush);
+                }
+                PlaybackService.this.finishResumeNotification();
             }
         });
         PlaybackService.instance = this;
         this.handler.postDelayed(this.checkpoint, 5000);
-        String lastId = this.settings.getString("last-media", "");
-        MediaFile last = null;
-        for (MediaFile file : this.recent) if (file.id.equals(lastId)) last = file;
-        for (MediaFile file : this.recentLinks) if (file.id.equals(lastId)) last = file;
-        if (last != null) this.openRecent(last.id, true);
-        else if (!this.recent.isEmpty()) this.openRecent(this.recent.get(0).id, true);
-        else if (!this.recentLinks.isEmpty()) this.openRecent(this.recentLinks.get(0).id, true);
     }
 
-    @Override public MediaSession onGetSession(MediaSession.ControllerInfo controller) { return this.session; }
+    private void restoreForInterface() {
+        this.startupRestored = true;
+        if (this.selectionVersion != 0 || this.current != null || this.openingFile || this.resolvingYouTube) return;
+        MediaFile last = SavedPlayback.last(this.settings);
+        if (last == null && !this.recent.isEmpty()) last = this.recent.get(0);
+        if (last == null && !this.recentLinks.isEmpty()) last = this.recentLinks.get(0);
+        if (last != null) { this.startupId = last.id; this.openRecent(last.id, true); }
+    }
+
+    @Override public MediaSession onGetSession(MediaSession.ControllerInfo controller) {
+        if (!this.startupRestored && !this.resumeForeground && controller.getUid() == android.os.Process.myUid() && !this.session.isMediaNotificationController(controller)) this.restoreForInterface();
+        return this.session;
+    }
+
+    @Override public int onStartCommand(Intent intent, int flags, int startId) {
+        if (SavedPlayback.playRequest(intent) && intent.getBooleanExtra(ResumeMediaButtonReceiver.RESUME_REQUEST, false) && !this.resumeForeground) {
+            MediaFile saved = this.current != null ? this.current : SavedPlayback.last(this.settings);
+            if (!this.startResumeNotification(saved)) return START_NOT_STICKY;
+            if (saved == null && !this.openingFile && !this.resolvingYouTube) { this.resumePlayRequested = true; this.failResumption("open", null); return START_NOT_STICKY; }
+        }
+        if (intent != null && intent.getBooleanExtra(ResumeMediaButtonReceiver.RESUME_REQUEST, false)) intent.putExtra(ResumeMediaButtonReceiver.RESUME_VERSION, this.selectionVersion);
+        return super.onStartCommand(intent, flags, startId);
+    }
+
+    @SuppressLint("MissingPermission") // MediaStyle notifications are exempt from POST_NOTIFICATIONS.
+    @Override public ListenableFuture<Void> onUpdateNotificationAsync(MediaSession session, boolean startInForegroundRequired) {
+        if (this.resumeForeground) {
+            NotificationManagerCompat.from(this).notify(DefaultMediaNotificationProvider.DEFAULT_NOTIFICATION_ID, this.resumeNotification());
+            return Futures.immediateVoidFuture();
+        }
+        return super.onUpdateNotificationAsync(session, startInForegroundRequired);
+    }
+
+    MediaSession.MediaItemsWithStartPosition resumptionItems(boolean forPlayback) {
+        MediaFile saved = SavedPlayback.last(this.settings);
+        if (forPlayback && (this.openingFile || this.resolvingYouTube) && (saved == null || !saved.id.equals(this.startupId))) return new MediaSession.MediaItemsWithStartPosition(ImmutableList.of(), C.INDEX_UNSET, C.TIME_UNSET);
+        if (saved == null || (forPlayback && !SavedPlayback.readable(this, saved))) {
+            if (forPlayback) { this.resumePlayRequested = true; this.failResumption("access", saved == null ? null : saved.name); }
+            return new MediaSession.MediaItemsWithStartPosition(ImmutableList.of(), C.INDEX_UNSET, C.TIME_UNSET);
+        }
+        MediaItem item = new MediaItem.Builder().setMediaId(saved.id).setMediaMetadata(this.metadata(saved)).build();
+        if (forPlayback && (this.openingFile || this.resolvingYouTube) && this.current == null) {
+            this.resuming = saved;
+            this.resumeItem = item;
+            this.resumePosition = SavedPlayback.position(this.settings, saved);
+            this.files.put(saved.id, saved);
+            this.controls.refresh();
+        }
+        return new MediaSession.MediaItemsWithStartPosition(ImmutableList.of(item), 0, SavedPlayback.position(this.settings, saved));
+    }
+
+    private boolean startResumeNotification(MediaFile saved) {
+        this.resumeNotificationFile = saved;
+        try {
+            if (Build.VERSION.SDK_INT >= 26) this.getSystemService(NotificationManager.class).createNotificationChannel(new NotificationChannel("shravanam.playback", this.getString(R.string.shravanam_playback_channel), NotificationManager.IMPORTANCE_LOW));
+            ServiceCompat.startForeground(this, DefaultMediaNotificationProvider.DEFAULT_NOTIFICATION_ID, this.resumeNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+            this.resumeForeground = true;
+            this.resumePlayRequested = false;
+            this.setForegroundServiceTimeoutMs(0);
+            this.resumeTimeout = () -> { this.resumePlayRequested = true; this.failResumption(saved != null && saved.youtube() ? "youtube" : "open", saved == null ? null : saved.name); };
+            this.handler.postDelayed(this.resumeTimeout, 60000);
+            return true;
+        } catch (IllegalStateException | SecurityException failure) {
+            ++this.selectionVersion;
+            this.cancelYouTube();
+            this.openingFile = false;
+            this.selectionAutoplay = false;
+            this.error = PlaybackService.failure("play", saved == null ? null : saved.name);
+            Toast.makeText(this, R.string.shravanam_resume_background, Toast.LENGTH_LONG).show();
+            this.stopSelf();
+            return false;
+        }
+    }
+
+    private android.app.Notification resumeNotification() {
+        MediaFile file = this.resumeNotificationFile;
+        int playKey = this.selectionAutoplay ? KeyEvent.KEYCODE_MEDIA_PAUSE : KeyEvent.KEYCODE_MEDIA_PLAY;
+        int playIcon = new CommandButton.Builder(this.selectionAutoplay ? CommandButton.ICON_PAUSE : CommandButton.ICON_PLAY).setPlayerCommand(Player.COMMAND_PLAY_PAUSE).build().iconResId;
+        int stopIcon = new CommandButton.Builder(CommandButton.ICON_STOP).setPlayerCommand(Player.COMMAND_STOP).build().iconResId;
+        return new NotificationCompat.Builder(this, "shravanam.playback").setSmallIcon(androidx.media3.session.R.drawable.media3_notification_small_icon)
+            .setContentTitle(file == null ? this.getApplicationInfo().loadLabel(this.getPackageManager()) : file.name).setContentText(this.getString(R.string.shravanam_resume_loading))
+            .setContentIntent(this.session.getSessionActivity()).setOnlyAlertOnce(true).setOngoing(true).setCategory(NotificationCompat.CATEGORY_TRANSPORT)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE).setStyle(new MediaStyleNotificationHelper.MediaStyle(this.session).setShowActionsInCompactView(0, 1))
+            .addAction(playIcon, this.getString(this.selectionAutoplay ? R.string.shravanam_resume_pause : R.string.shravanam_resume_play), this.resumeAction(playKey))
+            .addAction(stopIcon, this.getString(R.string.shravanam_resume_stop), this.resumeAction(KeyEvent.KEYCODE_MEDIA_STOP)).build();
+    }
+
+    private PendingIntent resumeAction(int key) {
+        Intent intent = new Intent(this, PlaybackService.class).setAction(Intent.ACTION_MEDIA_BUTTON).putExtra(Intent.EXTRA_KEY_EVENT, new KeyEvent(KeyEvent.ACTION_DOWN, key));
+        return PendingIntent.getService(this, key, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    }
+
+    private boolean beginResumption(MediaFile saved) {
+        if (!SavedPlayback.readable(this, saved)) { this.failResumption("access", saved.name); return false; }
+        if (!this.resumeForeground && !this.startResumeNotification(saved)) return false;
+        this.startupRestored = true;
+        this.resuming = saved;
+        this.resumeItem = new MediaItem.Builder().setMediaId(saved.id).setMediaMetadata(this.metadata(saved)).build();
+        this.resumePosition = SavedPlayback.position(this.settings, saved);
+        this.resumeError = null;
+        this.files.put(saved.id, saved);
+        this.openRecent(saved.id, true);
+        return true;
+    }
+
+    private void finishResumeNotification() {
+        if (!this.resumeForeground || !this.resumePlayRequested || this.resuming != null || this.openingFile || this.resolvingYouTube || this.current == null || this.player.getMediaItemCount() == 0) return;
+        if (this.dispatchingPlay || this.changingMedia || this.player.getPlaybackState() == Player.STATE_IDLE) return;
+        this.resumeForeground = false;
+        this.resumeNotificationFile = null;
+        if (this.resumeTimeout != null) this.handler.removeCallbacks(this.resumeTimeout);
+        this.resumeTimeout = null;
+        this.triggerNotificationUpdate();
+    }
+
+    private void acceptedResumption(MediaFile file) {
+        this.startupId = "";
+        if (this.resuming != null && this.resuming.id.equals(file.id)) { this.resuming = null; this.resumeItem = null; this.resumeError = null; this.controls.refresh(); }
+        this.finishResumeNotification();
+    }
+
+    private void dismissResumption(boolean stop) {
+        this.startupRestored = true;
+        this.startupId = "";
+        if (this.resuming == null && !this.resumeForeground) return;
+        boolean foreground = this.resumeForeground;
+        this.resuming = null;
+        this.resumeItem = null;
+        this.resumeError = null;
+        this.resumeForeground = false;
+        this.resumePlayRequested = false;
+        this.resumeNotificationFile = null;
+        if (this.resumeTimeout != null) this.handler.removeCallbacks(this.resumeTimeout);
+        this.resumeTimeout = null;
+        if (foreground) { this.stopForeground(STOP_FOREGROUND_REMOVE); if (stop) this.stopSelf(); }
+        this.controls.refresh();
+    }
+
+    private void failResumption(String code, String name) {
+        if (!this.resumeForeground && this.resuming == null) return;
+        if (this.resumeForeground && !this.resumePlayRequested) return;
+        ++this.selectionVersion;
+        this.selectionAutoplay = false;
+        this.openingFile = false;
+        this.cancelFileRead();
+        this.cancelYouTube();
+        this.resumeError = new PlaybackException(this.getString(R.string.shravanam_resume_failed), null, PlaybackException.ERROR_CODE_IO_UNSPECIFIED);
+        this.error = PlaybackService.failure(code, name);
+        this.controls.refresh();
+        boolean foreground = this.resumeForeground;
+        this.resumeForeground = false;
+        if (this.resumeTimeout != null) this.handler.removeCallbacks(this.resumeTimeout);
+        this.resumeTimeout = null;
+        if (foreground) { this.stopForeground(STOP_FOREGROUND_REMOVE); this.stopSelf(); }
+        Toast.makeText(this, R.string.shravanam_resume_failed, Toast.LENGTH_LONG).show();
+    }
+
+    private void cancelFileRead() {
+        CancellationSignal pending = this.pendingRead;
+        this.pendingRead = null;
+        if (pending != null) pending.cancel();
+    }
 
     // SimpleBasePlayer keeps command and interval change events consistent with its getters.
     private final class SessionPlayer extends ForwardingSimpleBasePlayer {
@@ -195,8 +387,25 @@ public final class PlaybackService extends MediaSessionService {
             Commands.Builder commands = state.availableCommands.buildUpon();
             if (state.availableCommands.contains(COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)) commands.addAll(COMMAND_SEEK_TO_PREVIOUS, COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM, COMMAND_SEEK_TO_NEXT, COMMAND_SEEK_TO_NEXT_MEDIA_ITEM);
             State.Builder result = state.buildUpon().setAvailableCommands(commands.build()).setSeekBackIncrementMs(PlaybackService.this.backward * 1000L).setSeekForwardIncrementMs(PlaybackService.this.forward * 1000L);
+            if (PlaybackService.this.resuming != null) {
+                boolean loading = PlaybackService.this.openingFile || PlaybackService.this.resolvingYouTube;
+                commands.removeAll(COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM, COMMAND_SEEK_BACK, COMMAND_SEEK_FORWARD, COMMAND_SEEK_TO_PREVIOUS, COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM, COMMAND_SEEK_TO_NEXT, COMMAND_SEEK_TO_NEXT_MEDIA_ITEM, COMMAND_SEEK_TO_DEFAULT_POSITION, COMMAND_SEEK_TO_MEDIA_ITEM);
+                return result.setAvailableCommands(commands.build()).setPlaylist(ImmutableList.of(new MediaItemData.Builder(PlaybackService.this.resuming.id).setMediaItem(PlaybackService.this.resumeItem).build()))
+                    .setCurrentMediaItemIndex(0).setContentPositionMs(PlaybackService.this.resumePosition).setContentBufferedPositionMs(PositionSupplier.getConstant(PlaybackService.this.resumePosition)).setTotalBufferedDurationMs(PositionSupplier.ZERO)
+                    .setPlayerError(PlaybackService.this.resumeError).setPlaybackState(loading ? STATE_BUFFERING : STATE_IDLE).setIsLoading(loading)
+                    .setPlayWhenReady(loading && PlaybackService.this.selectionAutoplay, PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST).build();
+            }
             if (PlaybackService.this.pendingWithoutAudio() || PlaybackService.this.player.getPlaybackState() == STATE_ENDED || PlaybackService.this.player.getPlayerError() != null) result.setPlayWhenReady(!PlaybackService.this.paused(), PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST);
             return result.build();
+        }
+
+        @Override protected ListenableFuture<?> handleSetMediaItems(List<MediaItem> items, int startIndex, long startPositionMs) {
+            if (items.isEmpty()) return Futures.immediateVoidFuture();
+            MediaFile saved = SavedPlayback.last(PlaybackService.this.settings);
+            if (items.size() != 1 || items.get(0).localConfiguration != null || saved == null || !saved.id.equals(items.get(0).mediaId)) return Futures.immediateFailedFuture(new IllegalArgumentException("Only the saved source can be resumed"));
+            if (PlaybackService.this.resuming != null && PlaybackService.this.resuming.id.equals(saved.id) && (PlaybackService.this.openingFile || PlaybackService.this.resolvingYouTube)) return Futures.immediateVoidFuture();
+            PlaybackService.this.beginResumption(saved);
+            return Futures.immediateVoidFuture();
         }
 
         @Override protected ListenableFuture<?> handleSeek(int mediaItemIndex, long positionMs, int seekCommand) {
@@ -207,6 +416,32 @@ public final class PlaybackService extends MediaSessionService {
         }
 
         @Override protected ListenableFuture<?> handleSetPlayWhenReady(boolean ready) {
+            PlaybackService.this.dispatchingPlay = true;
+            try { return this.setPlaybackReady(ready); }
+            finally { PlaybackService.this.dispatchingPlay = false; PlaybackService.this.finishResumeNotification(); }
+        }
+
+        private ListenableFuture<?> setPlaybackReady(boolean ready) {
+            if (!ready && PlaybackService.this.resumeForeground && !PlaybackService.this.resumePlayRequested) {
+                ++PlaybackService.this.selectionVersion;
+                PlaybackService.this.selectionAutoplay = false;
+                PlaybackService.this.cancelYouTube();
+                PlaybackService.this.cancelFileRead();
+                PlaybackService.this.openingFile = false;
+                PlaybackService.this.player.pause();
+                PlaybackService.this.dismissResumption(true);
+                return Futures.immediateVoidFuture();
+            }
+            if (PlaybackService.this.resumeForeground) {
+                if (ready) PlaybackService.this.resumePlayRequested = true;
+                PlaybackService.this.selectionAutoplay = ready;
+            }
+            if (PlaybackService.this.resuming != null) {
+                if (ready && !PlaybackService.this.openingFile && !PlaybackService.this.resolvingYouTube && !PlaybackService.this.beginResumption(PlaybackService.this.resuming)) return Futures.immediateVoidFuture();
+                if (ready && PlaybackService.this.resumeForeground) PlaybackService.this.resumePlayRequested = true;
+                PlaybackService.this.selectionAutoplay = ready;
+                return Futures.immediateVoidFuture();
+            }
             if (PlaybackService.this.openingFile || PlaybackService.this.resolvingYouTube) PlaybackService.this.selectionAutoplay = ready;
             if (PlaybackService.this.current == null) return Futures.immediateVoidFuture();
             if (ready) {
@@ -223,6 +458,7 @@ public final class PlaybackService extends MediaSessionService {
         }
 
         @Override protected ListenableFuture<?> handlePrepare() {
+            if (PlaybackService.this.resuming != null) return Futures.immediateVoidFuture();
             if (PlaybackService.this.current != null && PlaybackService.this.current.youtube() && (PlaybackService.this.player.getPlayerError() != null || PlaybackService.this.player.getPlaybackState() == STATE_IDLE)) {
                 if (!PlaybackService.this.resolvingYouTube) PlaybackService.this.openYouTube(PlaybackService.this.current.uri.toString(), PlaybackService.this.player.getPlayWhenReady(), Math.max(0, PlaybackService.this.player.getCurrentPosition()));
                 return Futures.immediateVoidFuture();
@@ -231,13 +467,16 @@ public final class PlaybackService extends MediaSessionService {
         }
 
         @Override protected ListenableFuture<?> handleStop() {
-            PlaybackService.this.saveProgress();
+            PlaybackService.this.saveProgress(true);
             PlaybackService.this.selectionAutoplay = false;
             ++PlaybackService.this.selectionVersion;
             PlaybackService.this.cancelYouTube();
+            PlaybackService.this.cancelFileRead();
             PlaybackService.this.openingFile = false;
             PlaybackService.this.player.pause();
-            return super.handleStop();
+            ListenableFuture<?> stopped = super.handleStop();
+            PlaybackService.this.dismissResumption(true);
+            return stopped;
         }
         void refresh() { this.invalidateState(); }
     }
@@ -269,6 +508,7 @@ public final class PlaybackService extends MediaSessionService {
     }
 
     boolean paused() {
+        if (this.resuming != null) return (!this.openingFile && !this.resolvingYouTube) || !this.selectionAutoplay;
         if (this.pendingWithoutAudio()) return !this.selectionAutoplay;
         return !this.player.getPlayWhenReady() || this.player.getPlaybackState() == Player.STATE_ENDED || this.player.getPlayerError() != null;
     }
@@ -319,7 +559,11 @@ public final class PlaybackService extends MediaSessionService {
     }
 
     void openUris(List<Uri> uris, Runnable finished) {
+        this.dismissResumption(false);
         this.cancelYouTube();
+        this.cancelFileRead();
+        CancellationSignal read = new CancellationSignal();
+        this.pendingRead = read;
         long version = ++this.selectionVersion;
         this.openingFile = true;
         this.selectionAutoplay = true;
@@ -328,7 +572,8 @@ public final class PlaybackService extends MediaSessionService {
             ArrayList<MediaFile> accepted = new ArrayList<>();
             JSObject firstError = null;
             for (Uri uri : uris) {
-                try { accepted.add(MediaFile.read(this.getContentResolver(), uri, this.types)); }
+                if (read.isCanceled()) break;
+                try { accepted.add(MediaFile.read(this.getContentResolver(), uri, this.types, read)); }
                 catch (Exception failure) {
                     Log.e("Shravanam", "Cannot open Android media", failure);
                     if (firstError == null) firstError = PlaybackService.failure(failure instanceof SecurityException ? "access" : failure instanceof MediaFile.UnsupportedFormat ? "format" : "open", failure instanceof MediaFile.UnsupportedFormat ? failure.getMessage() : null);
@@ -339,10 +584,12 @@ public final class PlaybackService extends MediaSessionService {
                 if (this.destroyed) return;
                 try {
                     if (version != this.selectionVersion) return;
+                    if (this.pendingRead == read) this.pendingRead = null;
                     this.openingFile = false;
                     for (MediaFile file : accepted) this.files.put(file.id, file);
                     if (!accepted.isEmpty()) { this.remember(accepted); this.select(accepted.get(0).id, this.selectionAutoplay); }
                     if (importError != null) this.error = importError;
+                    if (accepted.isEmpty()) this.failResumption("open", null);
                     this.controls.refresh();
                 } catch (RuntimeException failure) {
                     Log.e("Shravanam", "Cannot start selected media", failure);
@@ -375,9 +622,13 @@ public final class PlaybackService extends MediaSessionService {
         MediaFile selected = null;
         for (MediaFile file : this.recent) if (file.id.equals(id)) { selected = file; break; }
         for (MediaFile file : this.recentLinks) if (file.id.equals(id)) { selected = file; break; }
+        if (selected == null) { MediaFile saved = SavedPlayback.last(this.settings); if (saved != null && saved.id.equals(id)) selected = saved; }
         if (selected == null) return;
         if (selected.youtube()) { this.openYouTube(selected.uri.toString(), !automatic, null); return; }
         this.cancelYouTube();
+        this.cancelFileRead();
+        CancellationSignal read = new CancellationSignal();
+        this.pendingRead = read;
         MediaFile saved = selected;
         long version = ++this.selectionVersion;
         this.openingFile = true;
@@ -387,7 +638,7 @@ public final class PlaybackService extends MediaSessionService {
             MediaFile opened = null;
             JSObject failure = null;
             try {
-                opened = MediaFile.read(this.getContentResolver(), saved.uri, this.types);
+                opened = MediaFile.read(this.getContentResolver(), saved.uri, this.types, read);
                 if (!opened.id.equals(saved.id)) { opened = null; failure = PlaybackService.failure("changed-file", saved.name); }
             } catch (Exception error) {
                 Log.e("Shravanam", "Cannot reopen recent Android file", error);
@@ -397,10 +648,11 @@ public final class PlaybackService extends MediaSessionService {
             JSObject openError = failure;
             this.handler.post(() -> {
                 if (this.destroyed || version != this.selectionVersion) return;
+                if (this.pendingRead == read) this.pendingRead = null;
                 this.openingFile = false;
-                if (file == null) { this.error = openError; this.controls.refresh(); return; }
+                if (file == null) { this.error = openError; this.controls.refresh(); this.failResumption(openError.getString("code", "open"), saved.name); return; }
                 try { this.files.put(file.id, file); this.select(file.id, this.selectionAutoplay); }
-                catch (RuntimeException error) { Log.e("Shravanam", "Cannot restore Android playback", error); this.error = PlaybackService.failure("play", file.name); }
+                catch (RuntimeException error) { Log.e("Shravanam", "Cannot restore Android playback", error); this.error = PlaybackService.failure("play", file.name); this.failResumption("play", file.name); }
             });
         });
     }
@@ -411,6 +663,7 @@ public final class PlaybackService extends MediaSessionService {
         if (file.youtube()) { this.openYouTube(file.uri.toString(), autoplay, null); return; }
         if (!file.kind.equals("video") && this.videoRequested) this.requestVideo(false);
         this.cancelYouTube();
+        this.cancelFileRead();
         this.saveProgress();
         this.error = null;
         long position = Math.max(0, this.settings.getLong("position." + id, 0));
@@ -424,6 +677,7 @@ public final class PlaybackService extends MediaSessionService {
             this.player.prepare();
             if (autoplay) this.player.play();
         } finally { this.changingMedia = false; }
+        this.acceptedResumption(file);
         this.remember(java.util.Collections.singletonList(file));
     }
 
@@ -441,6 +695,7 @@ public final class PlaybackService extends MediaSessionService {
         try { source = YouTubeSource.parse(input); }
         catch (IllegalArgumentException failure) { this.error = PlaybackService.failure("youtube-link", input == null ? "" : input.substring(0, Math.min(200, input.length()))); return; }
         this.cancelYouTube();
+        this.cancelFileRead();
         long version = ++this.selectionVersion;
         this.openingFile = false;
         this.resolvingYouTube = true;
@@ -472,8 +727,9 @@ public final class PlaybackService extends MediaSessionService {
                         this.settings.edit().putString("last-media", file.id).apply();
                         this.remember(java.util.Collections.singletonList(file));
                         if (play) this.player.play();
-                    } catch (RuntimeException failure) { this.error = PlaybackService.failure("youtube", source.url); }
-                    finally { this.changingMedia = false; }
+                        this.acceptedResumption(file);
+                    } catch (RuntimeException failure) { this.error = PlaybackService.failure("youtube", source.url); this.failResumption("youtube", source.url); }
+                    finally { this.changingMedia = false; this.finishResumeNotification(); }
                 });
             } catch (Exception failure) {
                 this.handler.post(() -> {
@@ -481,6 +737,7 @@ public final class PlaybackService extends MediaSessionService {
                     this.cancelYouTube();
                     Log.e("Shravanam", "Cannot resolve YouTube audio");
                     this.error = PlaybackService.failure(failure instanceof YouTubeResolver.UnsupportedLive ? "youtube-live" : "youtube", source.url);
+                    this.failResumption(failure instanceof YouTubeResolver.UnsupportedLive ? "youtube-live" : "youtube", source.url);
                 });
             }
         });
@@ -489,6 +746,7 @@ public final class PlaybackService extends MediaSessionService {
             ++this.selectionVersion;
             this.cancelYouTube();
             this.error = PlaybackService.failure("youtube", source.url);
+            this.failResumption("youtube", source.url);
         };
         this.handler.postDelayed(this.youtubeTimeout, 60000);
     }
@@ -501,6 +759,7 @@ public final class PlaybackService extends MediaSessionService {
                 String url = command.getString("url", "");
                 try { YouTubeSource.parse(url); }
                 catch (IllegalArgumentException failure) { this.error = PlaybackService.failure("youtube-link", url.substring(0, Math.min(200, url.length()))); break; }
+                this.dismissResumption(false);
                 if (command.has("audioOnly")) {
                     if (!(command.opt("audioOnly") instanceof Boolean)) throw new IllegalArgumentException("Invalid playback mode");
                     this.requestVideo(!command.getBool("audioOnly", true));
@@ -516,11 +775,17 @@ public final class PlaybackService extends MediaSessionService {
             case "select":
                 String id = command.getString("id", "");
                 if (!this.files.containsKey(id)) break;
+                this.dismissResumption(false);
                 ++this.selectionVersion;
                 this.openingFile = false;
                 this.select(id, true);
                 break;
-            case "recent": this.openRecent(command.getString("id", ""), false); break;
+            case "recent":
+                String recentId = command.getString("id", "");
+                if (this.recent.stream().noneMatch(file -> file.id.equals(recentId)) && this.recentLinks.stream().noneMatch(file -> file.id.equals(recentId))) break;
+                this.dismissResumption(false);
+                this.openRecent(recentId, false);
+                break;
             case "toggle":
                 if (!this.paused()) this.controls.pause();
                 else this.controls.play();
@@ -556,22 +821,25 @@ public final class PlaybackService extends MediaSessionService {
         JSArray recentLinks = new JSArray();
         for (MediaFile file : this.recentLinks) recentLinks.put(file.snapshot());
         long duration = this.player.getDuration();
-        return new JSObject().put("items", items).put("recent", recent).put("recentLinks", recentLinks).put("youtubeSupported", true).put("currentId", this.current == null ? JSONObject.NULL : this.current.id)
+        return new JSObject().put("items", items).put("recent", recent).put("recentLinks", recentLinks).put("youtubeSupported", true).put("currentId", this.resuming != null ? this.resuming.id : this.current == null ? JSONObject.NULL : this.current.id)
             .put("videoSupported", true).put("sourceBrowserSupported", true).put("audioOnly", !this.videoRequested)
             .put("videoLoading", this.videoLoading).put("videoError", this.videoError == null ? JSONObject.NULL : this.videoError)
-            .put("time", Math.max(0, this.player.getCurrentPosition()) / 1000.0).put("duration", duration > 0 ? duration / 1000.0 : 0)
+            .put("time", (this.resuming != null ? this.resumePosition : Math.max(0, this.player.getCurrentPosition())) / 1000.0).put("duration", this.resuming == null && duration > 0 ? duration / 1000.0 : 0)
             .put("paused", this.paused())
             .put("loading", this.openingFile || this.resolvingYouTube || this.player.getPlaybackState() == Player.STATE_BUFFERING).put("speed", this.player.getPlaybackParameters().speed)
             .put("backward", this.backward).put("forward", this.forward).put("error", this.error == null ? JSONObject.NULL : this.error);
     }
 
-    void saveProgress() {
+    void saveProgress() { this.saveProgress(false); }
+
+    private void saveProgress(boolean flush) {
         SharedPreferences.Editor edit = this.settings.edit().putFloat("speed", this.player.getPlaybackParameters().speed).putInt("backward", this.backward).putInt("forward", this.forward);
         if (!this.changingMedia && this.current != null && this.player.getPlaybackState() != Player.STATE_IDLE && this.player.getPlayerError() == null) {
             long position = this.player.getPlaybackState() == Player.STATE_ENDED ? 0 : Math.max(0, this.player.getCurrentPosition());
             edit.putLong("position." + this.current.id, position);
         }
-        edit.apply();
+        if (flush) { if (!edit.commit()) this.error = PlaybackService.failure("storage", null); }
+        else edit.apply();
     }
 
     @Override
@@ -579,8 +847,10 @@ public final class PlaybackService extends MediaSessionService {
         this.destroyed = true;
         ++this.selectionVersion;
         this.cancelYouTube();
+        this.cancelFileRead();
         PlaybackService.instance = null;
-        this.saveProgress();
+        this.saveProgress(true);
+        if (this.resumeForeground) this.stopForeground(STOP_FOREGROUND_REMOVE);
         this.handler.removeCallbacksAndMessages(null);
         this.fileWorker.shutdownNow();
         this.youtubeWorker.shutdownNow();

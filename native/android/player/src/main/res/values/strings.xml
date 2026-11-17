@@ -1,4 +1,11 @@
 <resources>
+    <string name="shravanam_resume_loading">Resuming from the saved position…</string>
+    <string name="shravanam_resume_unavailable">Cannot resume. Open Shravanam and select the file again through Open files.</string>
+    <string name="shravanam_resume_background">Android could not resume playback in the background. Open Shravanam and press Play.</string>
+    <string name="shravanam_resume_failed">Cannot resume playback. Open Shravanam, check the connection or file access, and press Play again.</string>
+    <string name="shravanam_resume_play">Play</string>
+    <string name="shravanam_resume_pause">Pause</string>
+    <string name="shravanam_resume_stop">Stop</string>
     <string name="shravanam_playback_channel">Playback</string>
     <string name="shravanam_source_local">Local file</string>
     <string name="shravanam_source_youtube">YouTube</string>

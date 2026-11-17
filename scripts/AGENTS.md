@@ -36,6 +36,6 @@
 
 ## Verification
 
-- `bun test tests/android-dev.test.js tests/android-prepare.test.js` checks LAN serving, desktop API isolation, successful/failed rebuild revisions, URL validation, remote/bundled preparation environments, private video/browser Activity/layout copying, localized notification resources, and native system-control test copying. These checks use temporary fixtures and do not build the app or prepare native targets. Phone checks remain in `FEATURE_PLAN.md`.
+- `bun test tests/android-dev.test.js tests/android-prepare.test.js` checks LAN serving, desktop API isolation, successful/failed rebuild revisions, URL validation, remote/bundled preparation environments, private video/browser Activity/layout copying, localized notification resources, the headset-resumption receiver, and native system-control/resumption test copying. These checks use temporary fixtures and do not build the app or prepare native targets. Phone checks remain in `FEATURE_PLAN.md`.
 
 ## Child DOX Index

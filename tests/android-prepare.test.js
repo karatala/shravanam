@@ -106,12 +106,17 @@ test("standard Android preparation includes runtime server settings and the debu
   expect(mainManifest).toContain('android:extractNativeLibs="true"');
   expect(mainManifest).toContain('android:name="org.karatala.shravanam.player.NativeVideoActivity" android:exported="false"');
   expect(mainManifest).toContain('android:name="org.karatala.shravanam.player.SourceBrowserActivity" android:exported="false"');
+  expect(mainManifest).toContain('android:name="org.karatala.shravanam.player.ResumeMediaButtonReceiver" android:exported="true"');
+  expect(mainManifest).toContain('android:name="android.intent.action.MEDIA_BUTTON"');
   expect(await readFile(join(modulePath, "src/main/res/layout/shravanam_video.xml"), "utf8")).toContain('app:surface_type="texture_view"');
   expect(await readFile(join(directory, "android/app/build.gradle"), "utf8")).toContain("useLegacyPackaging = true");
   expect(await Bun.file(join(modulePath, "src/main/java/org/karatala/shravanam/player/YouTubeResolver.java")).exists()).toBe(true);
   expect(await Bun.file(join(modulePath, "src/main/java/org/karatala/shravanam/player/DevelopmentServer.java")).exists()).toBe(true);
   expect(await Bun.file(join(modulePath, "src/test/java/org/karatala/shravanam/player/DevelopmentServerUrlTest.java")).exists()).toBe(true);
   expect(await Bun.file(join(modulePath, "src/test/java/org/karatala/shravanam/player/SystemControlsTest.java")).exists()).toBe(true);
+  expect(await Bun.file(join(modulePath, "src/test/java/org/karatala/shravanam/player/PlaybackResumeTest.java")).exists()).toBe(true);
+  expect(await Bun.file(join(modulePath, "src/main/java/org/karatala/shravanam/player/ResumeMediaButtonReceiver.java")).exists()).toBe(true);
+  expect(await Bun.file(join(modulePath, "src/main/java/org/karatala/shravanam/player/SavedPlayback.java")).exists()).toBe(true);
   expect(await readFile(join(modulePath, "src/main/res/values/strings.xml"), "utf8")).toContain('name="shravanam_playback_channel"');
   expect(await readFile(join(modulePath, "src/main/res/values-ru/strings.xml"), "utf8")).toContain('name="shravanam_playback_channel"');
   expect(await readFile(join(directory, "android/app/src/main/java/org/karatala/shravanam/MainActivity.java"), "utf8")).toContain("DevelopmentServer.configuration(this)");

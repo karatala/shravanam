@@ -4,6 +4,7 @@ import android.content.ContentResolver;
 import android.content.res.AssetFileDescriptor;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.CancellationSignal;
 import android.provider.OpenableColumns;
 import com.getcapacitor.JSObject;
 import java.io.IOException;
@@ -30,11 +31,11 @@ final class MediaFile {
         this.temporary = temporary;
     }
 
-    static MediaFile read(ContentResolver resolver, Uri uri, JSONObject types) throws Exception {
+    static MediaFile read(ContentResolver resolver, Uri uri, JSONObject types, CancellationSignal cancellation) throws Exception {
         if (!"content".equals(uri.getScheme())) throw new SecurityException("Only granted content URIs are accepted");
         String name = uri.getLastPathSegment();
         long size = -1;
-        try (Cursor cursor = resolver.query(uri, new String[] { OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE }, null, null, null)) {
+        try (Cursor cursor = resolver.query(uri, new String[] { OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE }, null, null, null, cancellation)) {
             if (cursor != null && cursor.moveToFirst()) {
                 int nameColumn = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
                 int sizeColumn = cursor.getColumnIndex(OpenableColumns.SIZE);
@@ -51,7 +52,7 @@ final class MediaFile {
             else if (mime != null && mime.startsWith("video/")) kind = "video";
             else throw new UnsupportedFormat(name);
         }
-        try (AssetFileDescriptor descriptor = resolver.openAssetFileDescriptor(uri, "r")) {
+        try (AssetFileDescriptor descriptor = resolver.openAssetFileDescriptor(uri, "r", cancellation)) {
             if (descriptor == null) throw new IOException("Cannot read selected media");
         }
         boolean temporary = true;
