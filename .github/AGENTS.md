@@ -21,6 +21,6 @@
 
 ## Verification
 
-- The active Android job runs `bun run check` before preparation and Gradle. Web and desktop jobs are skipped until their gates are removed. After an updated workflow reaches GitHub, use a run at that updated commit to verify it; rerunning an older run uses its older workflow definition.
+- The active Android job runs `bun run check` before preparation, then `:shravanam-player:testDebugUnitTest` and `assembleDebug`. The debug artifact includes native server settings and its debug-only HTTP manifest overlay. Web and desktop jobs are skipped until their gates are removed. After an updated workflow reaches GitHub, use a run at that updated commit to verify it; rerunning an older run uses its older workflow definition.
 
 ## Child DOX Index

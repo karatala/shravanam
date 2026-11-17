@@ -121,9 +121,9 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run check
       - run: bun run prepare:android
-      - name: Build Android debug APK
+      - name: Check player and build Android debug APK
         working-directory: android
-        run: bash ./gradlew --no-daemon assembleDebug
+        run: bash ./gradlew --no-daemon :shravanam-player:testDebugUnitTest assembleDebug
       - uses: actions/upload-artifact@v6
         with:
           name: shravanam-android-debug

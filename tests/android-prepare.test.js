@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { copyFile, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { copyFile, cp, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 async function fixture() {
@@ -84,4 +84,26 @@ test("Capacitor config enables remote HTTP only with a validated dev URL", async
   const invalid = await run(directory, args, "http://example.com:3001");
   expect(invalid.code).not.toBe(0);
   expect(invalid.stderr).toContain("Cannot use Android development URL");
+});
+
+test("standard Android preparation includes runtime server settings and the debug-only HTTP overlay", async () => {
+  const directory = await fixture();
+  await mkdir(join(directory, "src"));
+  await mkdir(join(directory, "native"));
+  await cp("native/android", join(directory, "native/android"), { recursive: true });
+  await copyFile("src/playback.ts", join(directory, "src/playback.ts"));
+  await copyFile("scripts/prepare-android.js", join(directory, "scripts/prepare-android.js"));
+  await writeFile(join(directory, "android/settings.gradle"), "// fixture settings\n");
+  await mkdir(join(directory, "android/app"));
+  await writeFile(join(directory, "android/app/build.gradle"), "// fixture app\n");
+  const result = await run(directory, prepareArgs());
+  expect(result.code).toBe(0);
+  const modulePath = join(directory, "android/shravanam-player");
+  const debugManifest = await readFile(join(modulePath, "src/debug/AndroidManifest.xml"), "utf8");
+  expect(debugManifest).toContain('android:usesCleartextTraffic="true"');
+  const mainManifest = await readFile(join(modulePath, "src/main/AndroidManifest.xml"), "utf8");
+  expect(mainManifest).not.toContain("usesCleartextTraffic");
+  expect(await Bun.file(join(modulePath, "src/main/java/org/karatala/shravanam/player/DevelopmentServer.java")).exists()).toBe(true);
+  expect(await Bun.file(join(modulePath, "src/test/java/org/karatala/shravanam/player/DevelopmentServerUrlTest.java")).exists()).toBe(true);
+  expect(await readFile(join(directory, "android/app/src/main/java/org/karatala/shravanam/MainActivity.java"), "utf8")).toContain("DevelopmentServer.configuration(this)");
 });

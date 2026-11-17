@@ -16,8 +16,8 @@
 - `build-desktop.js` embeds the current asset list and the platform WebviewJS addon. On macOS it compiles the document launcher and packages the Bun host as `ShravanamHost`.
 - `desktop-associations.js` generates macOS media document declarations and optional Windows/Linux Open With registration output. Packaging does not execute registration or change defaults.
 - `prepare-mobile.js` creates and syncs the requested Capacitor target.
-- `prepare-mobile.js android --dev` accepts `--url http://192.168.1.10:3001` or `SHRAVANAM_ANDROID_DEV_URL`. Pass the selected URL only to Capacitor child commands. Normal Android/iOS preparation removes this environment value before sync, so generated projects return to bundled files and normal HTTP policy. `capacitor.config.ts` contains no saved development address.
-- `prepare-android.js` applies the versioned Android player library and MainActivity after sync, generates media-type metadata from `src/playback.ts`, and adds each Gradle link once.
+- `prepare-mobile.js android --dev` accepts `--url http://192.168.1.10:3001` or `SHRAVANAM_ANDROID_DEV_URL`. Pass the selected URL only to Capacitor child commands. Normal Android/iOS preparation removes this environment value before sync. Debug APKs can select a server or bundled files at runtime through their native Server control; that device-local selection takes priority over the build-time URL. Standard preparation does not clear device preferences. `capacitor.config.ts` contains no saved development address.
+- `prepare-android.js` applies the versioned Android player library and MainActivity after sync, including its debug manifest and native server settings. It generates media-type metadata from `src/playback.ts` and adds each Gradle link once. All Android debug APKs include the runtime server selector without a build-time address.
 
 ## Local Contracts
 

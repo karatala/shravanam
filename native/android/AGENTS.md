@@ -8,7 +8,8 @@
 
 - `player/` is an Android library with Media3, the playback service, and the Capacitor plugin.
 - `PlaybackService.java` owns playback, persistence, notification preferences, and system time-jump commands. `MediaFile.java` validates granted files and reads provider metadata. `ShravanamPlayerPlugin.java` owns the controller binding, picker, and incoming-intent queue.
-- `MainActivity.java` registers the local plugin before Capacitor creates its bridge.
+- `MainActivity.java` registers the local plugin and selects the debug interface origin before Capacitor creates its bridge.
+- `DevelopmentServer.java` owns the debug-only native Server button, settings dialog, and device-local server preference. `DevelopmentServerUrl.java` validates local HTTP origins on port 3001 without DNS lookup.
 - `scripts/prepare-android.js` copies this source into the ignored Android project and generates accepted media types from `src/playback.ts`.
 
 ## Local Contracts
@@ -22,11 +23,15 @@
 - Let Media3 own foreground notifications and service lifetime. Enable audio-focus handling, pause on disconnected audio outputs, and use a playback wake lock. Do not release the service when Capacitor pauses or destroys its UI.
 - Use pinned Media3 versions. Do not edit generated Android copies as durable source, and do not run preparation or native builds unless requested.
 - Declare Activity, AppCompat, and Core directly in `player/build.gradle`: Capacitor keeps its AndroidX dependencies in `implementation`, so they are not on this module's compile classpath. Match root version overrides, with defaults from the pinned Capacitor version. Do not change Capacitor internals to export these dependencies.
+- Enable server settings only when the installed app has `ApplicationInfo.FLAG_DEBUGGABLE`. Keep the native Server button outside the WebView so recovery still works with an unreachable server or broken interface. Use system-bar/cutout insets for the button.
+- Accept only private/loopback IPv4 or localhost over HTTP on port 3001, with no credentials, path, query, or fragment. Store the chosen origin in private development preferences, outside library data. An empty saved origin explicitly selects bundled assets; it overrides any build-time server URL. Cancel and invalid input must keep the current source.
+- Select the origin with a fresh `CapConfig` before bridge creation. Switch by recreating only the Activity; do not pause, stop, or release the playback service. Keep Capacitor bridge access limited to its selected origin. The `player/src/debug/AndroidManifest.xml` overlay allows HTTP only in debug variants; release builds do not get this overlay or the Server button.
 
 ## Work Guidance
 
 ## Verification
 
 - Track Android build and device checks separately in `FEATURE_PLAN.md`; source inspection does not establish runtime support.
+- `:shravanam-player:testDebugUnitTest` checks native development URL validation before the CI debug APK build. Device checks must cover changing addresses, restart, unreachable/broken server recovery, safe-area placement, and playback continuity.
 
 ## Child DOX Index
