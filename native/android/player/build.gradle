@@ -17,6 +17,20 @@ android {
         sourceCompatibility JavaVersion.VERSION_21
         targetCompatibility JavaVersion.VERSION_21
     }
+    testOptions {
+        unitTests.includeAndroidResources = true
+        unitTests.all {
+            jvmArgs '--add-opens=java.base/java.lang=ALL-UNNAMED', '--add-opens=java.base/java.util=ALL-UNNAMED',
+                '--add-opens=java.base/java.io=ALL-UNNAMED', '--add-opens=java.base/java.net=ALL-UNNAMED',
+                '--add-opens=java.base/java.security=ALL-UNNAMED', '--add-opens=java.base/java.text=ALL-UNNAMED',
+                '--add-opens=java.base/jdk.internal.access=ALL-UNNAMED', '--add-opens=java.desktop/java.awt.font=ALL-UNNAMED',
+                '--add-opens=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED'
+            testLogging {
+                events 'failed'
+                exceptionFormat 'full'
+            }
+        }
+    }
 }
 
 dependencies {
@@ -34,5 +48,4 @@ dependencies {
     testImplementation 'org.json:json:20250517'
     testImplementation 'androidx.media3:media3-test-utils:1.11.1'
     testImplementation 'org.robolectric:robolectric:4.16.1'
-    testImplementation 'org.mockito:mockito-core:5.20.0'
 }

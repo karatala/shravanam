@@ -81,7 +81,7 @@ public final class PlaybackService extends MediaSessionService {
     private long videoRevision;
     private long videoOwner;
     private long videoOwners;
-    private ExoPlayer player;
+    private Player player;
     private SessionPlayer controls;
     private MediaSession session;
     private SharedPreferences settings;
@@ -722,7 +722,7 @@ public final class PlaybackService extends MediaSessionService {
                         DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory().setDefaultRequestProperties(stream.headers);
                         DefaultMediaSourceFactory factory = new DefaultMediaSourceFactory(this).setDataSourceFactory(new DefaultDataSource.Factory(this, http));
                         MediaItem item = new MediaItem.Builder().setMediaId(file.id).setUri(stream.url).setMediaMetadata(this.metadata(file)).build();
-                        this.player.setMediaSource(factory.createMediaSource(item), followCurrentClock ? Math.max(0, this.player.getCurrentPosition()) : position);
+                        ((ExoPlayer) this.player).setMediaSource(factory.createMediaSource(item), followCurrentClock ? Math.max(0, this.player.getCurrentPosition()) : position);
                         this.player.prepare();
                         this.settings.edit().putString("last-media", file.id).apply();
                         this.remember(java.util.Collections.singletonList(file));

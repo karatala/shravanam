@@ -14,7 +14,6 @@ import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.Player;
 import androidx.media3.common.SimpleBasePlayer;
 import androidx.media3.common.util.UnstableApi;
-import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.session.MediaSession;
 import androidx.media3.test.utils.FakePlayer;
 import com.google.common.collect.ImmutableList;
@@ -26,8 +25,6 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.AdditionalAnswers;
-import org.mockito.Mockito;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
@@ -36,7 +33,7 @@ import org.robolectric.util.ReflectionHelpers;
 
 @OptIn(markerClass = UnstableApi.class)
 @RunWith(RobolectricTestRunner.class)
-@Config(manifest = Config.NONE, sdk = 28)
+@Config(sdk = 28)
 @LooperMode(LooperMode.Mode.PAUSED)
 public final class SystemControlsTest {
     private PlaybackService service;
@@ -45,12 +42,13 @@ public final class SystemControlsTest {
 
     @Before public void setup() throws Exception {
         this.service = new PlaybackService();
+        ReflectionHelpers.callInstanceMethod(this.service, "attachBaseContext", ReflectionHelpers.ClassParameter.from(Context.class, RuntimeEnvironment.getApplication()));
         String id = "a".repeat(64);
         MediaItem item = new MediaItem.Builder().setMediaId(id).setUri("content://test/book").build();
         SimpleBasePlayer.MediaItemData data = new SimpleBasePlayer.MediaItemData.Builder(id).setMediaItem(item).setDurationUs(120000000).setIsSeekable(true).build();
         this.audio = new FakePlayer(Player.STATE_READY, false, ImmutableList.of(data), 1, 0);
         // Keep real Media3 command/state behavior without an audio device, decoder, or network.
-        ReflectionHelpers.setField(this.service, "player", Mockito.mock(ExoPlayer.class, AdditionalAnswers.delegatesTo(this.audio)));
+        ReflectionHelpers.setField(this.service, "player", this.audio);
         ReflectionHelpers.setField(this.service, "settings", RuntimeEnvironment.getApplication().getSharedPreferences("test.playback", Context.MODE_PRIVATE));
         ReflectionHelpers.setField(this.service, "backward", 17);
         ReflectionHelpers.setField(this.service, "forward", 42);
@@ -123,7 +121,7 @@ public final class SystemControlsTest {
     }
 
     @Test public void pauseAndHeadphoneRemovalCancelAutoplayBeforeTheFirstFileLoads() {
-        this.audio.clearMediaItems();
+        this.audio.setMediaItems(ImmutableList.of());
         this.audio.stop();
         ReflectionHelpers.setField(this.service, "current", null);
         ReflectionHelpers.setField(this.service, "openingFile", true);
@@ -147,8 +145,7 @@ public final class SystemControlsTest {
         MediaFile saved = MediaFile.youtube(YouTubeSource.parse("https://youtu.be/dQw4w9WgXcQ"), "Saved video");
         android.content.SharedPreferences settings = ReflectionHelpers.getField(this.service, "settings");
         settings.edit().putString("last-media", saved.id).putString("recent-youtube", new org.json.JSONArray().put(saved.stored()).toString()).putLong("position." + saved.id, 72000).commit();
-        PlaybackService preview = Mockito.spy(this.service);
-        Mockito.doReturn("YouTube").when(preview).getString(R.string.shravanam_source_youtube);
+        PlaybackService preview = this.service;
         MediaSession.MediaItemsWithStartPosition result = preview.resumptionItems(false);
         assertEquals(72000, result.startPositionMs);
         assertEquals(saved.id, result.mediaItems.get(0).mediaId);
@@ -158,14 +155,13 @@ public final class SystemControlsTest {
         assertFalse((boolean) ReflectionHelpers.getField(preview, "resumeForeground"));
         assertTrue(ReflectionHelpers.getField(preview, "resuming") == null);
         assertEquals("a".repeat(64), this.audio.getCurrentMediaItem().mediaId);
-        MediaSession.ControllerInfo controller = Mockito.mock(MediaSession.ControllerInfo.class);
-        Mockito.when(controller.getUid()).thenReturn(android.os.Process.myUid() + 1);
+        MediaSession.ControllerInfo controller = MediaSession.ControllerInfo.createTestOnlyControllerInfo("system.test", 1, android.os.Process.myUid() + 1, 0, 0, false, android.os.Bundle.EMPTY, true);
         preview.onGetSession(controller);
         assertFalse((boolean) ReflectionHelpers.getField(preview, "startupRestored"));
     }
 
     @Test public void resumptionPublishesSavedPositionWhileKeepingTheSignedStreamOutOfThePlaceholder() throws Exception {
-        this.audio.clearMediaItems();
+        this.audio.setMediaItems(ImmutableList.of());
         this.audio.stop();
         ReflectionHelpers.setField(this.service, "current", null);
         MediaFile saved = MediaFile.youtube(YouTubeSource.parse("https://youtu.be/dQw4w9WgXcQ"), "Saved video");
