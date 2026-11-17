@@ -36,6 +36,7 @@
   let ready = $state(false);
   let link = $state("");
   let openingLink = $state(false);
+  let androidBrowserError = $state("");
   let nativeLibrary = $state.raw<NativeLibraryState | null>(null);
   let libraryError = $state("");
   let libraryLoading = $state(false);
@@ -54,6 +55,7 @@
     const failure = interfaceError ?? playback.error ?? playback.videoError;
     if (!failure) return "";
     const name = failure.name ? ` «${failure.name}»` : "";
+    if (failure.code === "video" && android) return text("Cannot open video. Choose a video file or a recorded YouTube video, check the connection, and select Watch again. Audio playback continues.", "Не удалось открыть видео. Выберите видеофайл или записанный ролик YouTube, проверьте соединение и снова выберите «Смотреть». Звук продолжает идти.");
     if (failure.code === "video") return text("Cannot open video. Audio playback continues. Check the connection and yt-dlp, then select Listen and Watch to retry.", "Не удалось подключить видео. Звук продолжает воспроизводиться. Проверьте соединение и yt-dlp, затем переключите «Слушать» и «Смотреть» для повторной попытки.");
     if (failure.code === "youtube-link") return text(`Cannot open link${name}. Paste an HTTPS link to one YouTube video, for example https://www.youtube.com/watch?v=dQw4w9WgXcQ. Playlist-only links and other sites are not supported yet.`, `Не удалось открыть ссылку${name}. Вставьте HTTPS-ссылку на один ролик YouTube, например https://www.youtube.com/watch?v=dQw4w9WgXcQ. Ссылки только на плейлист и другие сайты пока не поддерживаются.`);
     if (failure.code === "missing-downloader") return text("Cannot open YouTube: yt-dlp was not found. Add a current yt-dlp executable to PATH, or update IINA in Applications, then open the link again.", "Не удалось открыть YouTube: yt-dlp не найден. Добавьте актуальный исполняемый файл yt-dlp в PATH или обновите IINA в папке «Программы», затем откройте ссылку снова.");
@@ -105,6 +107,7 @@
   function addFiles(files: BrowserMediaFile[]) { void browserPlayer?.addFiles(files).catch(browserFailure); }
 
   async function command(action: PlaybackCommand) {
+    androidBrowserError = "";
     interfaceError = null;
     try {
       if (nativeDesktop) playback = await desktopPlayer()!.playbackCommand(action);
@@ -133,6 +136,11 @@
     try { await window.shravanamDesktop!.backgroundWindow(russian ? "ru" : "en"); }
     catch (error) { const message = error instanceof Error ? error.message : "Cannot enter background mode. Keep the window open and try again. / Не удалось перейти в фон. Оставьте окно открытым и повторите попытку."; backgroundError = message.split(" / ")[russian ? 1 : 0] ?? message; }
   }
+  async function openAndroidBrowser() {
+    androidBrowserError = "";
+    try { await androidPlayer.openBrowser({ url: link.trim() }); }
+    catch (error) { console.error(error); androidBrowserError = text("Cannot open the browser. Enter an HTTPS address, for example https://m.youtube.com, or clear the field and try again.", "Не удалось открыть браузер. Введите HTTPS-адрес, например https://m.youtube.com, или очистите поле и повторите попытку."); }
+  }
   async function libraryCommand(action: LibraryCommand) {
     libraryLoading = true;
     try {
@@ -143,6 +151,7 @@
     finally { libraryLoading = false; }
   }
   async function openFiles() {
+    androidBrowserError = "";
     interfaceError = null;
     if (!nativePlayer) {
       try {
@@ -230,6 +239,7 @@
 <section class="player" class:dragging aria-label={text("Player", "Плеер")}>
   <div class="source-row">
     <button type="button" class="action" disabled={!ready} onclick={openFiles} onpointerup={releasePointerFocus}>{text("Open files", "Открыть файлы")}</button>
+    {#if android && playback.sourceBrowserSupported}<button type="button" class="action" disabled={!ready} onclick={openAndroidBrowser} onpointerup={releasePointerFocus}>{text("Browser", "Браузер")}</button>{/if}
     {#if nativeDesktop || android}
       <form class="link-form" onsubmit={openLink}>
         <input type="url" aria-label={text("YouTube link", "Ссылка YouTube")} bind:value={link} required maxlength="2048" placeholder={text("YouTube link", "Ссылка YouTube")} />
@@ -260,19 +270,21 @@
       </div>
       <label class="speed">{text("Speed", "Скорость")}<select value={playback.speed} onchange={event => command({ type: "speed", value: Number(event.currentTarget.value) })}>{#each [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3] as speed}<option value={speed}>{speed}×</option>{/each}</select></label>
     {/if}
-    {#if nativeDesktop && typeof playback.audioOnly === "boolean"}
-      <select class="mode" aria-label={text("Playback mode", "Режим воспроизведения")} title={text("Video opens in the player window", "Видео открывается в окне плеера")} disabled={!ready || playback.loading} value={playback.audioOnly ? "audio" : "video"} onchange={event => command({ type: "audio-only", value: event.currentTarget.value === "audio" })}><option value="audio">{text("Listen", "Слушать")}</option><option value="video">{text("Watch", "Смотреть")}</option></select>
+    {#if (nativeDesktop || (android && playback.videoSupported)) && typeof playback.audioOnly === "boolean"}
+      <select class="mode" aria-label={text("Playback mode", "Режим воспроизведения")} title={text("Video opens in the player window", "Видео открывается в окне плеера")} disabled={!ready || playback.loading} value={playback.audioOnly ? "audio" : "video"} onchange={event => command({ type: "audio-only", value: event.currentTarget.value === "audio" })}><option value="audio">{text("Listen", "Слушать")}</option><option value="video" disabled={android && current?.kind !== "video"}>{text("Watch", "Смотреть")}</option></select>
     {/if}
     {#if desktop}<button type="button" class="action background" title={text("Continue playback and reopen from the tray", "Продолжить воспроизведение и открыть окно из трея")} onclick={backgroundWindow} onpointerup={releasePointerFocus}>{text("Background", "В фон")}</button>{/if}
   </div>
   {#if dragging}<p class="hint" role="status">{text("Drop files here", "Отпустите файлы здесь")}</p>{/if}
   {#if playback.loading || openingLink}<p class="hint" role="status">{text("Opening media…", "Открытие медиа…")}</p>{/if}
   {#if android && ready && !youtubeAvailable}<p class="hint">{text("Install a new Android APK to open YouTube links. Reloading the interface does not update the native player.", "Для открытия ссылок YouTube установите новый Android APK. Перезагрузка интерфейса не обновляет нативный плеер.")}</p>{/if}
+  {#if android && ready && youtubeAvailable && (!playback.videoSupported || !playback.sourceBrowserSupported)}<p class="hint">{text("Install a new Android APK to use video and the source browser.", "Для видео и встроенного браузера установите новый Android APK.")}</p>{/if}
   {#if playback.videoLoading}<p class="hint" role="status">{text("Opening video; audio keeps playing.", "Подключение видео; звук продолжает идти.")}</p>{/if}
-  {#if android && current?.kind === "video"}<p class="hint">{text("Audio only on Android for now.", "На Android пока воспроизводится только звук.")}</p>{/if}
+  {#if android && current?.kind === "video" && !playback.videoSupported}<p class="hint">{text("This APK plays audio only.", "Этот APK воспроизводит только звук.")}</p>{/if}
   {#if current?.temporary}<p class="hint">{text("Temporary file access. Use Open files to request lasting access.", "Временный доступ к файлу. Выберите его через «Открыть файлы», чтобы сохранить доступ.")}</p>{/if}
   {#if errorText}<p class="error" role="alert">{errorText}</p>{/if}
   {#if backgroundError}<p class="error" role="alert">{backgroundError}</p>{/if}
+  {#if androidBrowserError}<p class="error" role="alert">{androidBrowserError}</p>{/if}
 </section>
 
 <section class="workspace" aria-label={text("Library and tools", "Библиотека и инструменты")}>

@@ -27,13 +27,22 @@ final class YouTubeResolver {
     }
 
     static Stream resolve(Context context, YouTubeSource source, String processId) throws Exception {
+        return resolve(context, source, processId, false);
+    }
+
+    static Stream resolveVideo(Context context, YouTubeSource source, String processId) throws Exception {
+        return resolve(context, source, processId, true);
+    }
+
+    private static Stream resolve(Context context, YouTubeSource source, String processId, boolean video) throws Exception {
         YoutubeDL.INSTANCE.init(context.getApplicationContext());
         if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
         YoutubeDLRequest request = new YoutubeDLRequest(source.url);
         for (String option : new String[] { "--ignore-config", "--no-plugin-dirs", "--no-remote-components", "--no-cache-dir", "--no-playlist", "--no-check-formats", "--skip-download", "--dump-single-json" }) request.addOption(option);
-        request.addOption("--socket-timeout", "15").addOption("--retries", "1").addOption("--extractor-retries", "1").addOption("-f", "bestaudio[protocol=https]/best[protocol=https]");
+        request.addOption("--socket-timeout", "15").addOption("--retries", "1").addOption("--extractor-retries", "1").addOption("-f", video ? "bestvideo[protocol=https][height<=1080]/best[protocol=https][height<=1080]" : "bestaudio[protocol=https]/best[protocol=https]");
+        if (video) request.addOption("-S", "res:1080,vcodec:h264");
         String output = YoutubeDL.INSTANCE.execute(request, processId).getOut();
-        Stream selected = parse(output, source);
+        Stream selected = parse(output, source, video);
         if (available(selected)) return selected;
         JSONObject info = new JSONObject(output);
         JSONArray formats = info.optJSONArray("formats");
@@ -43,9 +52,10 @@ final class YouTubeResolver {
         if (formats != null) for (int pass = 0; pass < 2; pass++) for (int idx = formats.length() - 1; idx >= 0; idx--) {
             if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
             JSONObject candidate = formats.getJSONObject(idx);
-            if (candidate.optBoolean("has_drm") || (candidate.optString("vcodec", "none").equals("none") != (pass == 0))) continue;
+            String otherCodec = candidate.optString(video ? "acodec" : "vcodec", "none");
+            if (candidate.optBoolean("has_drm") || (otherCodec.equals("none") != (pass == 0))) continue;
             Stream alternative;
-            try { alternative = stream(info, candidate); }
+            try { alternative = stream(info, candidate, video); }
             catch (Exception failure) { continue; }
             if (!tried.add(alternative.url)) continue;
             if (tried.size() > 6) throw new IOException("No available audio stream");
@@ -73,6 +83,10 @@ final class YouTubeResolver {
     }
 
     static Stream parse(String output, YouTubeSource source) throws Exception {
+        return parse(output, source, false);
+    }
+
+    static Stream parse(String output, YouTubeSource source, boolean video) throws Exception {
         if (output.length() > 8 * 1024 * 1024) throw new IllegalArgumentException("YouTube metadata is too large");
         JSONObject info = new JSONObject(output);
         if (!source.videoId.equals(info.optString("id")) || "playlist".equals(info.optString("_type"))) throw new IllegalArgumentException("Unexpected source");
@@ -83,14 +97,16 @@ final class YouTubeResolver {
             format = null;
             for (int idx = 0; idx < formats.length(); idx++) {
                 JSONObject candidate = formats.getJSONObject(idx);
-                if (!candidate.optString("acodec").isEmpty() && !candidate.optString("acodec").equals("none")) { format = candidate; break; }
+                String codec = candidate.optString(video ? "vcodec" : "acodec");
+                if (!codec.isEmpty() && !codec.equals("none")) { format = candidate; break; }
             }
         }
-        return stream(info, format);
+        return stream(info, format, video);
     }
 
-    private static Stream stream(JSONObject info, JSONObject format) throws Exception {
-        if (format == null || format.optString("acodec").isEmpty() || format.optString("acodec").equals("none") || !"https".equals(format.optString("protocol"))) throw new IllegalArgumentException("Missing audio stream");
+    private static Stream stream(JSONObject info, JSONObject format, boolean video) throws Exception {
+        String codec = format == null ? "" : format.optString(video ? "vcodec" : "acodec");
+        if (format == null || codec.isEmpty() || codec.equals("none") || !"https".equals(format.optString("protocol")) || (video && format.optInt("height") > 1080)) throw new IllegalArgumentException("Missing supported stream");
         URI uri = new URI(format.getString("url"));
         if (!"https".equals(uri.getScheme()) || uri.getHost() == null || !uri.getHost().endsWith(".googlevideo.com") || uri.getPort() != -1 || uri.getRawUserInfo() != null || uri.getRawFragment() != null) throw new IllegalArgumentException("Unsupported stream address");
         JSONObject headerValues = format.optJSONObject("http_headers");

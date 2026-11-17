@@ -76,7 +76,20 @@ public final class ShravanamPlayerPlugin extends Plugin {
 
     @PluginMethod
     public void playbackCommand(PluginCall call) {
-        this.run(call, service -> { service.command(call.getObject("command")); call.resolve(service.snapshot()); });
+        this.run(call, service -> {
+            JSObject command = call.getObject("command");
+            service.command(command);
+            NativeVideoActivity.present(this.getActivity(), service, command);
+            call.resolve(service.snapshot());
+        });
+    }
+
+    @PluginMethod
+    public void openBrowser(PluginCall call) {
+        this.getActivity().runOnUiThread(() -> {
+            try { SourceBrowserActivity.open(this.getActivity(), call.getString("url", "")); call.resolve(); }
+            catch (IllegalArgumentException failure) { call.reject("Use an HTTPS address or a YouTube search."); }
+        });
     }
 
     @PluginMethod

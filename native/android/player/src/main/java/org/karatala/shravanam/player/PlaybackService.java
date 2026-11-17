@@ -57,6 +57,12 @@ public final class PlaybackService extends MediaSessionService {
     private Runnable youtubeTimeout;
     private boolean resolvingYouTube;
     private boolean youtubeAutoplay;
+    private boolean videoRequested;
+    private boolean videoLoading;
+    private JSObject videoError;
+    private long videoRevision;
+    private long videoOwner;
+    private long videoOwners;
     private ExoPlayer player;
     private SessionPlayer controls;
     private MediaSession session;
@@ -226,6 +232,36 @@ public final class PlaybackService extends MediaSessionService {
         return result;
     }
 
+    Player sessionPlayer() { return this.controls; }
+    MediaFile currentMedia() { return this.current; }
+    boolean openingMedia() { return this.openingFile || this.resolvingYouTube; }
+    boolean failed() { return this.error != null; }
+    boolean wantsVideo() { return this.videoRequested; }
+    long videoRevision() { return this.videoRevision; }
+    long claimVideo() { this.videoOwner = ++this.videoOwners; return this.videoOwner; }
+
+    private void requestVideo(boolean value) {
+        this.videoRequested = value;
+        ++this.videoRevision;
+        this.videoOwner = 0;
+        this.videoLoading = false;
+        this.videoError = null;
+    }
+
+    void videoStatus(long owner, long revision, boolean loading, boolean failed) {
+        if (owner != this.videoOwner || revision != this.videoRevision) return;
+        this.videoLoading = loading;
+        this.videoError = failed ? PlaybackService.failure("video", this.current == null ? null : this.current.name) : null;
+    }
+
+    void releaseVideo(long owner, long revision, boolean closed) {
+        if (owner != this.videoOwner || revision != this.videoRevision) return;
+        this.videoOwner = 0;
+        this.videoLoading = false;
+        this.videoError = null;
+        if (closed) this.videoRequested = false;
+    }
+
     void openUris(List<Uri> uris, Runnable finished) {
         this.cancelYouTube();
         long version = ++this.selectionVersion;
@@ -312,6 +348,7 @@ public final class PlaybackService extends MediaSessionService {
         MediaFile file = this.files.get(id);
         if (file == null) return;
         if (file.youtube()) { this.openYouTube(file.uri.toString(), autoplay, null); return; }
+        if (!file.kind.equals("video") && this.videoRequested) this.requestVideo(false);
         this.cancelYouTube();
         this.saveProgress();
         this.error = null;
@@ -397,7 +434,22 @@ public final class PlaybackService extends MediaSessionService {
         if (command == null) throw new IllegalArgumentException("Missing playback command");
         String type = command.getString("type", "");
         switch (type) {
-            case "open-youtube": this.openYouTube(command.getString("url", ""), true, null); break;
+            case "open-youtube":
+                String url = command.getString("url", "");
+                try { YouTubeSource.parse(url); }
+                catch (IllegalArgumentException failure) { this.error = PlaybackService.failure("youtube-link", url.substring(0, Math.min(200, url.length()))); break; }
+                if (command.has("audioOnly")) {
+                    if (!(command.opt("audioOnly") instanceof Boolean)) throw new IllegalArgumentException("Invalid playback mode");
+                    this.requestVideo(!command.getBool("audioOnly", true));
+                }
+                this.openYouTube(url, true, null);
+                break;
+            case "audio-only":
+                if (!(command.opt("value") instanceof Boolean)) throw new IllegalArgumentException("Invalid playback mode");
+                boolean audioOnly = command.getBool("value", true);
+                if (!audioOnly && this.current != null && !this.current.kind.equals("video")) { this.videoError = PlaybackService.failure("video", this.current.name); break; }
+                this.requestVideo(!audioOnly);
+                break;
             case "select":
                 String id = command.getString("id", "");
                 if (!this.files.containsKey(id)) break;
@@ -442,6 +494,8 @@ public final class PlaybackService extends MediaSessionService {
         for (MediaFile file : this.recentLinks) recentLinks.put(file.snapshot());
         long duration = this.player.getDuration();
         return new JSObject().put("items", items).put("recent", recent).put("recentLinks", recentLinks).put("youtubeSupported", true).put("currentId", this.current == null ? JSONObject.NULL : this.current.id)
+            .put("videoSupported", true).put("sourceBrowserSupported", true).put("audioOnly", !this.videoRequested)
+            .put("videoLoading", this.videoLoading).put("videoError", this.videoError == null ? JSONObject.NULL : this.videoError)
             .put("time", Math.max(0, this.player.getCurrentPosition()) / 1000.0).put("duration", duration > 0 ? duration / 1000.0 : 0)
             .put("paused", !this.player.getPlayWhenReady() || this.player.getPlaybackState() == Player.STATE_ENDED || this.player.getPlayerError() != null)
             .put("loading", this.openingFile || this.resolvingYouTube || this.player.getPlaybackState() == Player.STATE_BUFFERING).put("speed", this.player.getPlaybackParameters().speed)

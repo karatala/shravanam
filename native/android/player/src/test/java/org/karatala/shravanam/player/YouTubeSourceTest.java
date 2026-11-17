@@ -45,6 +45,17 @@ public final class YouTubeSourceTest {
     }
 
     @Test
+    public void selectsVideoIndependentlyAndBoundsItsResolution() throws Exception {
+        YouTubeSource source = YouTubeSource.parse("https://youtu.be/dQw4w9WgXcQ");
+        JSONObject audio = this.metadata().put("vcodec", "none");
+        JSONObject video = this.metadata().put("url", "https://rr1.googlevideo.com/video").put("vcodec", "avc1").put("acodec", "none").put("height", 1080);
+        JSONObject info = this.metadata().put("requested_formats", new JSONArray().put(audio).put(video));
+        assertEquals(video.getString("url"), YouTubeResolver.parse(info.toString(), source, true).url);
+        assertEquals(audio.getString("url"), YouTubeResolver.parse(info.toString(), source).url);
+        assertThrows(IllegalArgumentException.class, () -> YouTubeResolver.parse(video.put("height", 2160).toString(), source, true));
+    }
+
+    @Test
     public void rejectsUnexpectedSourcesLiveAndUnsafeStreamMetadata() throws Exception {
         YouTubeSource source = YouTubeSource.parse("https://youtu.be/dQw4w9WgXcQ");
         assertThrows(IllegalArgumentException.class, () -> YouTubeResolver.parse(this.metadata().put("id", "jNQXAC9IVRw").toString(), source));

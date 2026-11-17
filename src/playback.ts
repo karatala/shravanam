@@ -16,6 +16,8 @@ export type PlaybackState = {
   recent: MediaItem[];
   recentLinks?: MediaItem[];
   youtubeSupported?: boolean;
+  videoSupported?: boolean;
+  sourceBrowserSupported?: boolean;
   currentId: string | null;
   libraryMediaId?: string | null;
   time: number;

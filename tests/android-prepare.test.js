@@ -104,6 +104,9 @@ test("standard Android preparation includes runtime server settings and the debu
   const mainManifest = await readFile(join(modulePath, "src/main/AndroidManifest.xml"), "utf8");
   expect(mainManifest).not.toContain("usesCleartextTraffic");
   expect(mainManifest).toContain('android:extractNativeLibs="true"');
+  expect(mainManifest).toContain('android:name="org.karatala.shravanam.player.NativeVideoActivity" android:exported="false"');
+  expect(mainManifest).toContain('android:name="org.karatala.shravanam.player.SourceBrowserActivity" android:exported="false"');
+  expect(await readFile(join(modulePath, "src/main/res/layout/shravanam_video.xml"), "utf8")).toContain('app:surface_type="texture_view"');
   expect(await readFile(join(directory, "android/app/build.gradle"), "utf8")).toContain("useLegacyPackaging = true");
   expect(await Bun.file(join(modulePath, "src/main/java/org/karatala/shravanam/player/YouTubeResolver.java")).exists()).toBe(true);
   expect(await Bun.file(join(modulePath, "src/main/java/org/karatala/shravanam/player/DevelopmentServer.java")).exists()).toBe(true);

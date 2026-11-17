@@ -4,6 +4,7 @@ ext {
     androidxActivityVersion = rootProject.ext.has('androidxActivityVersion') ? rootProject.ext.androidxActivityVersion : '1.11.0'
     androidxAppCompatVersion = rootProject.ext.has('androidxAppCompatVersion') ? rootProject.ext.androidxAppCompatVersion : '1.7.1'
     androidxCoreVersion = rootProject.ext.has('androidxCoreVersion') ? rootProject.ext.androidxCoreVersion : '1.17.0'
+    androidxWebkitVersion = rootProject.ext.has('androidxWebkitVersion') ? rootProject.ext.androidxWebkitVersion : '1.14.0'
 }
 
 android {
@@ -23,9 +24,11 @@ dependencies {
     implementation "androidx.activity:activity:$androidxActivityVersion"
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation "androidx.core:core:$androidxCoreVersion"
+    implementation "androidx.webkit:webkit:$androidxWebkitVersion"
     implementation 'androidx.media3:media3-exoplayer:1.11.1'
     implementation 'androidx.media3:media3-session:1.11.1'
     implementation 'androidx.media3:media3-datasource:1.11.1'
+    implementation 'androidx.media3:media3-ui:1.11.1'
     implementation 'io.github.junkfood02.youtubedl-android:library:0.18.1'
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.json:json:20250517'

@@ -1,6 +1,6 @@
 # Sources, downloads, and site scripts
 
-The first implementation targets desktop. `bun run dev` provides browser controls and can open a native source window. `bun run desktop` provides the same source actions in the native app. Android and standalone PWA source/download adapters are not implemented.
+Desktop provides source browsing, manual downloads, and site scripts. `bun run dev` provides browser controls and can open a native source window; `bun run desktop` provides the same actions in the native app. Android provides a basic native source browser and recorded YouTube Listen/Watch handoff. Android downloads/scripts and standalone PWA acquisition remain pending.
 
 ## Find and play
 
@@ -8,7 +8,17 @@ Use **Find on YouTube** to open the separate source window. Enter a search or an
 
 The source view blocks new windows. Its own pages do not receive the app's file, playback, or window bridge. Website playback, login compatibility, and site changes still need native checks. Authenticated/private videos and live streams are not supported by the current extractor flow.
 
+## Android source browser
+
+Install an updated APK, then tap **Browser** beside **Open files**. Enter an HTTPS address or search words, open one recorded YouTube video, and tap **Listen** or **Watch**. Back, Forward, and Reload navigate the website. The selected URL and mode go to the native Media3 player together; the browser closes. Watch opens the native video screen, while audio remains in the service. Video prepares independently and joins the current audio position. Closing video or the browser leaves audio running.
+
+The website runs in a plain, muted WebView without the app's Capacitor bridge, local file/content access, mixed content, or new windows. If muting is unavailable, the app asks you to update Android System WebView. A separate website profile is used when the installed WebView supports it. Backgrounding destroys the website view; returning reloads its last address, so its page state and navigation history reset. Website sessions and addresses stay outside library archives.
+
+Only a recorded YouTube URL can be handed to the native player. Website login does not authenticate the extractor. Private/authenticated videos, live streams, scripts, offline downloads, and OS Share/Open With for links remain pending on Android. Real same-page YouTube navigation, AV synchronization, and background behavior still need device checks.
+
 ## Download and use offline
+
+This section and the userscript section below describe desktop features.
 
 Use Download in the source toolbar, or paste a YouTube video link under Sources and downloads in the main window. Select audio or video up to 480p, 720p, or 1080p. These are maximum resolutions, not a promise that every video provides each format. Desktop uses installed yt-dlp; video merging also needs installed ffmpeg. The app does not install either tool.
 

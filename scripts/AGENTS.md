@@ -17,7 +17,7 @@
 - `desktop-associations.js` generates macOS media document declarations and optional Windows/Linux Open With registration output. Packaging does not execute registration or change defaults.
 - `prepare-mobile.js` creates and syncs the requested Capacitor target.
 - `prepare-mobile.js android --dev` accepts `--url http://192.168.1.10:3001` or `SHRAVANAM_ANDROID_DEV_URL`. Pass the selected URL only to Capacitor child commands. Normal Android/iOS preparation removes this environment value before sync. Debug APKs can select a server or bundled files at runtime through their native Server control; that device-local selection takes priority over the build-time URL. Standard preparation does not clear device preferences. `capacitor.config.ts` contains no saved development address.
-- `prepare-android.js` applies the versioned Android player library and MainActivity after sync, including its debug manifest and native server settings. It generates media-type metadata from `src/playback.ts` and adds each Gradle link once. All Android debug APKs include the runtime server selector without a build-time address.
+- `prepare-android.js` applies the versioned Android player library and MainActivity after sync, including its debug manifest, native server settings, private video/browser Activities, and video TextureView layout. It generates media-type metadata from `src/playback.ts` and adds each Gradle link once. All Android debug APKs include the runtime server selector without a build-time address.
 - Android preparation also sets app-level `jniLibs.useLegacyPackaging = true` for the packaged YouTube extractor runtime. Keep that separate marker idempotent. The library manifest sets `extractNativeLibs`; no external-storage permission or FFmpeg package is needed for audio stream resolution.
 
 ## Local Contracts
@@ -36,6 +36,6 @@
 
 ## Verification
 
-- `bun test tests/android-dev.test.js tests/android-prepare.test.js` checks LAN serving, desktop API isolation, successful/failed rebuild revisions, URL validation, and remote/bundled preparation environments. These checks use temporary fixtures and do not build the app or prepare native targets. Phone checks remain in `FEATURE_PLAN.md`.
+- `bun test tests/android-dev.test.js tests/android-prepare.test.js` checks LAN serving, desktop API isolation, successful/failed rebuild revisions, URL validation, remote/bundled preparation environments, and private video/browser Activity/layout copying. These checks use temporary fixtures and do not build the app or prepare native targets. Phone checks remain in `FEATURE_PLAN.md`.
 
 ## Child DOX Index
