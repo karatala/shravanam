@@ -386,7 +386,7 @@ public final class PlaybackService extends MediaSessionService {
             State state = super.getState();
             Commands.Builder commands = state.availableCommands.buildUpon();
             if (state.availableCommands.contains(COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)) commands.addAll(COMMAND_SEEK_TO_PREVIOUS, COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM, COMMAND_SEEK_TO_NEXT, COMMAND_SEEK_TO_NEXT_MEDIA_ITEM);
-            State.Builder result = state.buildUpon().setAvailableCommands(commands.build()).setSeekBackIncrementMs(PlaybackService.this.backward * 1000L).setSeekForwardIncrementMs(PlaybackService.this.forward * 1000L);
+            State.Builder result = state.buildUpon().setSeekBackIncrementMs(PlaybackService.this.backward * 1000L).setSeekForwardIncrementMs(PlaybackService.this.forward * 1000L);
             if (PlaybackService.this.resuming != null) {
                 boolean loading = PlaybackService.this.openingFile || PlaybackService.this.resolvingYouTube;
                 commands.removeAll(COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM, COMMAND_SEEK_BACK, COMMAND_SEEK_FORWARD, COMMAND_SEEK_TO_PREVIOUS, COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM, COMMAND_SEEK_TO_NEXT, COMMAND_SEEK_TO_NEXT_MEDIA_ITEM, COMMAND_SEEK_TO_DEFAULT_POSITION, COMMAND_SEEK_TO_MEDIA_ITEM);
@@ -396,7 +396,7 @@ public final class PlaybackService extends MediaSessionService {
                     .setPlayWhenReady(loading && PlaybackService.this.selectionAutoplay, PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST).build();
             }
             if (PlaybackService.this.pendingWithoutAudio() || PlaybackService.this.player.getPlaybackState() == STATE_ENDED || PlaybackService.this.player.getPlayerError() != null) result.setPlayWhenReady(!PlaybackService.this.paused(), PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST);
-            return result.build();
+            return result.setAvailableCommands(commands.build()).build();
         }
 
         @Override protected ListenableFuture<?> handleSetMediaItems(List<MediaItem> items, int startIndex, long startPositionMs) {
