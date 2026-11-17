@@ -1,4 +1,7 @@
 <resources>
+    <string name="shravanam_playback_channel">Playback</string>
+    <string name="shravanam_source_local">Local file</string>
+    <string name="shravanam_source_youtube">YouTube</string>
     <string name="shravanam_seek_back">Back %1$d seconds</string>
     <string name="shravanam_seek_forward">Forward %1$d seconds</string>
 </resources>

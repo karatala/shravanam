@@ -277,7 +277,7 @@ public final class NativeVideoActivity extends AppCompatActivity {
     private void synchronize() {
         if (this.service == null || this.audio == null) return;
         if (PlaybackService.instance != this.service || !this.service.wantsVideo()) { this.finish(); return; }
-        NativeControls.label(this.toggle, this.audio.getPlayWhenReady() && this.audio.getPlaybackState() != Player.STATE_ENDED && this.audio.getPlayerError() == null ? text("Pause", "Пауза") : text("Play", "Пуск"));
+        NativeControls.label(this.toggle, this.service.paused() ? text("Play", "Пуск") : text("Pause", "Пауза"));
         MediaFile file = this.service.currentMedia();
         if (file != null && !this.service.openingMedia() && !this.service.failed() && this.expectedId != null && !this.expectedId.equals(file.id)) this.expectedId = file.id;
         if (file == null || (this.expectedId != null && !this.expectedId.equals(file.id))) {
