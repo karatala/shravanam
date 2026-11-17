@@ -762,13 +762,13 @@ public final class PlaybackService extends MediaSessionService {
                 this.dismissResumption(false);
                 if (command.has("audioOnly")) {
                     if (!(command.opt("audioOnly") instanceof Boolean)) throw new IllegalArgumentException("Invalid playback mode");
-                    this.requestVideo(!command.getBool("audioOnly", true));
+                    this.requestVideo(!command.getBool("audioOnly"));
                 }
                 this.openYouTube(url, true, null);
                 break;
             case "audio-only":
                 if (!(command.opt("value") instanceof Boolean)) throw new IllegalArgumentException("Invalid playback mode");
-                boolean audioOnly = command.getBool("value", true);
+                boolean audioOnly = command.getBool("value");
                 if (!audioOnly && this.current != null && !this.current.kind.equals("video")) { this.videoError = PlaybackService.failure("video", this.current.name); break; }
                 this.requestVideo(!audioOnly);
                 break;
