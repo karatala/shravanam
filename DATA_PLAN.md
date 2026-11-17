@@ -6,6 +6,8 @@ Default `dev` uses the desktop adapter in `Shravanam-dev`; the native applicatio
 
 Desktop migration maps canonical YouTube sources and their downloaded copies to one logical media record. Stable source/media IDs use the canonical source URL; local files use generated IDs and local bindings. Native archives include logical records, notes, subtitles, playlists, chapters, and progress. They exclude media files, paths, URI grants, download indexes, userscripts, website sessions, credentials, and device-local timer/voice settings. Signed stream URLs and headers stay transient.
 
+Android offline copies retain the existing canonical YouTube media ID and service-owned `position.<id>` preference. Audio, video, online playback, paused restoration, and headset resumption share this position. An atomic device-local download index and app-private media directory live under `noBackupFilesDir`; only checked relative output names reach the index. This does not implement Android library migration, portable media backups, or synchronization.
+
 ## Confirmed scope
 
 - ✅ Keep the user's library data portable: watched/listened history, positions, completion, media/source metadata, descriptions, imported comments, subtitles, transcripts, chapters, bookmarks, personal notes, playlists, and relevant settings.

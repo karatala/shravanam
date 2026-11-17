@@ -8,6 +8,12 @@ import android.content.Context;
 import android.content.Intent;
 import android.media.AudioManager;
 import android.os.CancellationSignal;
+import android.os.Looper;
+import java.io.File;
+import java.nio.file.Files;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import org.robolectric.Shadows;
 import androidx.annotation.OptIn;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
@@ -65,6 +71,35 @@ public final class SystemControlsTest {
             ((ExecutorService) ReflectionHelpers.getField(this.service, "fileWorker")).shutdownNow();
             ((ExecutorService) ReflectionHelpers.getField(this.service, "youtubeWorker")).shutdownNow();
         }
+    }
+
+    @Test public void offlineYouTubeUsesTheSamePositionAndColdPlayPathWithoutResolvingStreams() throws Exception {
+        Context context = RuntimeEnvironment.getApplication();
+        OfflineDownloads downloads = OfflineDownloads.get(context);
+        String url = "https://youtu.be/dQw4w9WgXcQ";
+        OfflineDownloads.Job job = downloads.start(url, true, 720, null);
+        File file = new File(downloads.directory(job.id), "media.m4a");
+        Files.write(file.toPath(), new byte[] { 1, 2, 3 });
+        downloads.finish(job.id, "ready", "", file);
+        String sourceId = YouTubeSource.parse(url).id;
+        context.getSharedPreferences("test.playback", Context.MODE_PRIVATE).edit().putLong("position." + sourceId, 38000).commit();
+        this.service.openDownload(downloads.exact(job.id), false);
+        ((Future<?>) ReflectionHelpers.getField(this.service, "youtubeTask")).get(5, TimeUnit.SECONDS);
+        Shadows.shadowOf(Looper.getMainLooper()).idle();
+        assertEquals(sourceId, this.service.currentMedia().id);
+        assertEquals("file", this.audio.getCurrentMediaItem().localConfiguration.uri.getScheme());
+        assertEquals(38000, this.audio.getCurrentPosition());
+        assertTrue(this.service.snapshot().getBool("offline"));
+        assertFalse(this.service.snapshot().toString().contains(file.getPath()));
+        this.audio.setPosition(57000);
+        this.controls.stop();
+        assertEquals(57000, context.getSharedPreferences("test.playback", Context.MODE_PRIVATE).getLong("position." + sourceId, 0));
+        this.controls.play();
+        ((Future<?>) ReflectionHelpers.getField(this.service, "youtubeTask")).get(5, TimeUnit.SECONDS);
+        Shadows.shadowOf(Looper.getMainLooper()).idle();
+        assertEquals(sourceId, this.audio.getCurrentMediaItem().mediaId);
+        assertEquals("file", this.audio.getCurrentMediaItem().localConfiguration.uri.getScheme());
+        assertEquals(57000, this.audio.getCurrentPosition());
     }
 
     @Test public void headsetPreviousAndNextSeekWithinTheSameItem() {

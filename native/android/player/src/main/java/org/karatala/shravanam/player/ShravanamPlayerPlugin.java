@@ -5,6 +5,7 @@ import android.content.ClipData;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Build;
 import android.util.Log;
 import androidx.annotation.OptIn;
 import androidx.activity.result.ActivityResult;
@@ -16,8 +17,11 @@ import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.PermissionState;
 import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 import com.google.common.util.concurrent.ListenableFuture;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -26,7 +30,7 @@ import java.util.List;
 import java.util.function.Consumer;
 
 @OptIn(markerClass = UnstableApi.class)
-@CapacitorPlugin(name = "ShravanamPlayer")
+@CapacitorPlugin(name = "ShravanamPlayer", permissions = { @Permission(alias = "downloads", strings = { "android.permission.POST_NOTIFICATIONS" }) })
 public final class ShravanamPlayerPlugin extends Plugin {
     private ListenableFuture<MediaController> connection;
     private boolean destroyed;
@@ -76,6 +80,68 @@ public final class ShravanamPlayerPlugin extends Plugin {
 
     @PluginMethod
     public void getPlaybackState(PluginCall call) { this.run(call, service -> call.resolve(service.snapshot())); }
+
+    @PluginMethod
+    public void getDownloads(PluginCall call) {
+        try { call.resolve(OfflineDownloads.get(this.getContext()).snapshot()); }
+        catch (java.io.IOException failure) { PlaybackDiagnostics.record("offline.index.failed", "Cannot read offline library", failure); call.reject("Cannot read offline downloads. Check free storage and reopen the app.", "download-storage"); }
+    }
+
+    @PluginMethod
+    public void downloadCommand(PluginCall call) {
+        JSObject command = call.getObject("command");
+        String type = command == null ? "" : command.getString("type", "");
+        if ((type.equals("start") || type.equals("retry")) && Build.VERSION.SDK_INT >= 33 && this.getPermissionState("downloads") == PermissionState.PROMPT) {
+            this.requestPermissionForAlias("downloads", call, "downloadPermission");
+            return;
+        }
+        this.executeDownload(call);
+    }
+
+    @PermissionCallback
+    private void downloadPermission(PluginCall call) { this.executeDownload(call); }
+
+    private void executeDownload(PluginCall call) {
+        this.getActivity().runOnUiThread(() -> {
+            try {
+                JSObject command = call.getObject("command");
+                if (command == null) throw new IllegalArgumentException("Missing download command");
+                OfflineDownloads store = OfflineDownloads.get(this.getContext());
+                String type = command.getString("type", "");
+                if (type.equals("cancel")) DownloadService.cancel(this.getContext(), command.getString("id", ""));
+                else if (type.equals("start") || type.equals("retry")) {
+                    boolean audioOnly = true;
+                    int quality = 720;
+                    if (type.equals("start")) {
+                        if (!(command.opt("audioOnly") instanceof Boolean) || !(command.opt("quality") instanceof Number)) throw new IllegalArgumentException("Invalid download format");
+                        audioOnly = command.getBool("audioOnly");
+                        double value = ((Number) command.opt("quality")).doubleValue();
+                        if (value != Math.rint(value) || !Double.isFinite(value)) throw new IllegalArgumentException("Invalid download quality");
+                        quality = DownloadProtocol.quality((int) value);
+                    }
+                    DownloadService.enqueue(this.getContext(), command.getString("url", ""), audioOnly, quality, type.equals("retry") ? command.getString("id", "") : null);
+                } else throw new IllegalArgumentException("Unknown download command");
+                call.resolve(store.snapshot());
+            } catch (Exception failure) {
+                PlaybackDiagnostics.record("download.command.failed", "Native download request failed", failure);
+                call.reject("Cannot complete the download request.", failure instanceof DownloadService.StartFailure ? "download-background" : failure instanceof java.io.IOException ? "download-storage" : failure instanceof IllegalStateException ? "download-busy" : "download-request");
+            }
+        });
+    }
+
+    @PluginMethod
+    public void openDownload(PluginCall call) {
+        this.run(call, service -> {
+            OfflineDownloads.Copy copy;
+            try { copy = OfflineDownloads.get(this.getContext()).exact(call.getString("id", "")); }
+            catch (java.io.IOException failure) { call.reject("Cannot read offline downloads.", "download-storage"); return; }
+            if (copy == null) { call.reject("The offline file is missing. Download it again.", "download-missing"); return; }
+            boolean watch = Boolean.FALSE.equals(call.getBoolean("audioOnly", true)) && copy.video;
+            service.openDownload(copy, watch);
+            NativeVideoActivity.present(this.getActivity(), service, new JSObject().put("type", "open-youtube").put("url", copy.url));
+            call.resolve(service.snapshot());
+        });
+    }
 
     @PluginMethod
     public void showDiagnostics(PluginCall call) {

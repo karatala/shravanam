@@ -10,7 +10,7 @@ export function mediaKind(name: string): "audio" | "video" | null {
 }
 
 export type MediaItem = { id: string; name: string; kind: "audio" | "video"; temporary?: boolean };
-export type PlaybackError = { code: "format" | "open" | "play" | "storage" | "missing-player" | "player-path" | "player-settings" | "iina-player" | "player" | "player-closed" | "access" | "android-player" | "library-changed" | "recent-access" | "changed-file" | "host" | "picker" | "native-drop" | "youtube-link" | "missing-downloader" | "youtube" | "youtube-live" | "video"; name?: string };
+export type PlaybackError = { code: "format" | "open" | "play" | "storage" | "missing-player" | "player-path" | "player-settings" | "iina-player" | "player" | "player-closed" | "access" | "android-player" | "library-changed" | "recent-access" | "changed-file" | "host" | "picker" | "native-drop" | "youtube-link" | "missing-downloader" | "youtube" | "youtube-live" | "video" | "offline"; name?: string };
 export type PlaybackState = {
   items: MediaItem[];
   recent: MediaItem[];
@@ -19,6 +19,9 @@ export type PlaybackState = {
   videoSupported?: boolean;
   sourceBrowserSupported?: boolean;
   diagnosticsSupported?: boolean;
+  downloadsSupported?: boolean;
+  sourceUrl?: string;
+  offline?: boolean;
   currentId: string | null;
   libraryMediaId?: string | null;
   time: number;

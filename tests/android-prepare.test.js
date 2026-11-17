@@ -106,6 +106,9 @@ test("standard Android preparation includes runtime server settings and the debu
   expect(mainManifest).toContain('android:extractNativeLibs="true"');
   expect(mainManifest).toContain('android:name="org.karatala.shravanam.player.NativeVideoActivity" android:exported="false"');
   expect(mainManifest).toContain('android:name="org.karatala.shravanam.player.SourceBrowserActivity" android:exported="false"');
+  expect(mainManifest).toContain('android:name="org.karatala.shravanam.player.DownloadService" android:exported="false" android:foregroundServiceType="dataSync"');
+  expect(mainManifest).toContain('android.permission.FOREGROUND_SERVICE_DATA_SYNC');
+  expect(mainManifest).toContain('android.permission.POST_NOTIFICATIONS');
   expect(mainManifest).toContain('android:name="org.karatala.shravanam.player.ResumeMediaButtonReceiver" android:exported="true"');
   expect(mainManifest).toContain('android:name="android.intent.action.MEDIA_BUTTON"');
   expect(await readFile(join(modulePath, "src/main/res/layout/shravanam_video.xml"), "utf8")).toContain('app:surface_type="texture_view"');
@@ -118,9 +121,15 @@ test("standard Android preparation includes runtime server settings and the debu
   expect(await Bun.file(join(modulePath, "src/test/java/org/karatala/shravanam/player/DiagnosticLogTest.java")).exists()).toBe(true);
   expect(await Bun.file(join(modulePath, "src/main/java/org/karatala/shravanam/player/PlaybackDiagnostics.java")).exists()).toBe(true);
   expect(await Bun.file(join(modulePath, "src/main/java/org/karatala/shravanam/player/DiagnosticLog.java")).exists()).toBe(true);
+  for (const name of ["DownloadService", "OfflineDownloads", "DownloadProtocol"]) expect(await Bun.file(join(modulePath, `src/main/java/org/karatala/shravanam/player/${name}.java`)).exists()).toBe(true);
+  for (const name of ["OfflineDownloadsTest", "DownloadProtocolTest"]) expect(await Bun.file(join(modulePath, `src/test/java/org/karatala/shravanam/player/${name}.java`)).exists()).toBe(true);
+  expect(await readFile(join(modulePath, "build.gradle"), "utf8")).toContain("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1");
+  expect(await readFile(join(modulePath, "build.gradle"), "utf8")).toContain("androidx.media3:media3-inspector:1.11.1");
   expect(await Bun.file(join(modulePath, "src/main/java/org/karatala/shravanam/player/ResumeMediaButtonReceiver.java")).exists()).toBe(true);
   expect(await Bun.file(join(modulePath, "src/main/java/org/karatala/shravanam/player/SavedPlayback.java")).exists()).toBe(true);
   expect(await readFile(join(modulePath, "src/main/res/values/strings.xml"), "utf8")).toContain('name="shravanam_playback_channel"');
   expect(await readFile(join(modulePath, "src/main/res/values-ru/strings.xml"), "utf8")).toContain('name="shravanam_playback_channel"');
+  expect(await readFile(join(modulePath, "src/main/res/values/strings.xml"), "utf8")).toContain('name="shravanam_download_channel"');
+  expect(await readFile(join(modulePath, "src/main/res/values-ru/strings.xml"), "utf8")).toContain('name="shravanam_download_channel"');
   expect(await readFile(join(directory, "android/app/src/main/java/org/karatala/shravanam/MainActivity.java"), "utf8")).toContain("DevelopmentServer.configuration(this)");
 });

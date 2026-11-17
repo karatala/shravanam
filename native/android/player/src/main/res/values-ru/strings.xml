@@ -1,4 +1,9 @@
 <resources>
+    <string name="shravanam_download_channel">Офлайн-загрузки</string>
+    <string name="shravanam_download_starting">Получение источника YouTube…</string>
+    <string name="shravanam_download_finishing">Подготовка офлайн-файла…</string>
+    <string name="shravanam_download_cancelling">Отмена загрузки…</string>
+    <string name="shravanam_download_progress">Часть %1$d: %2$d%%</string>
     <string name="shravanam_resume_loading">Возобновление с сохранённой позиции…</string>
     <string name="shravanam_resume_unavailable">Не удалось возобновить. Откройте Shravanam и выберите файл снова через «Открыть файлы».</string>
     <string name="shravanam_resume_background">Android не разрешил возобновить звук в фоне. Откройте Shravanam и нажмите «Пуск».</string>

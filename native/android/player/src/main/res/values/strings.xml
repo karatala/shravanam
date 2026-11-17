@@ -1,4 +1,9 @@
 <resources>
+    <string name="shravanam_download_channel">Offline downloads</string>
+    <string name="shravanam_download_starting">Getting the YouTube source…</string>
+    <string name="shravanam_download_finishing">Preparing the offline file…</string>
+    <string name="shravanam_download_cancelling">Cancelling download…</string>
+    <string name="shravanam_download_progress">Part %1$d: %2$d%%</string>
     <string name="shravanam_resume_loading">Resuming from the saved position…</string>
     <string name="shravanam_resume_unavailable">Cannot resume. Open Shravanam and select the file again through Open files.</string>
     <string name="shravanam_resume_background">Android could not resume playback in the background. Open Shravanam and press Play.</string>

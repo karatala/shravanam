@@ -3,6 +3,8 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <application android:extractNativeLibs="true">
         <receiver android:name="org.karatala.shravanam.player.ResumeMediaButtonReceiver" android:exported="true">
@@ -12,6 +14,7 @@
         </receiver>
         <activity android:name="org.karatala.shravanam.player.NativeVideoActivity" android:exported="false" android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
         <activity android:name="org.karatala.shravanam.player.SourceBrowserActivity" android:exported="false" />
+        <service android:name="org.karatala.shravanam.player.DownloadService" android:exported="false" android:foregroundServiceType="dataSync" android:stopWithTask="false" />
         <service android:name="org.karatala.shravanam.player.PlaybackService" android:exported="true" android:foregroundServiceType="mediaPlayback" android:stopWithTask="false">
             <intent-filter>
                 <action android:name="androidx.media3.session.MediaSessionService" />

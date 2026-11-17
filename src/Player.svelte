@@ -15,6 +15,7 @@
   import type { LibraryCommand } from "./library";
   import SleepPanel from "./SleepPanel.svelte";
   import SourcesPanel from "./SourcesPanel.svelte";
+  import AndroidDownloads from "./AndroidDownloads.svelte";
 
   const russian = document.documentElement.lang === "ru";
   const text = (english: string, translation: string) => russian ? translation : english;
@@ -55,6 +56,7 @@
   const errorText = $derived.by(() => {
     const failure = interfaceError ?? playback.error ?? playback.videoError;
     if (!failure) return "";
+    if (failure.code === "offline") return text("Cannot open the offline file. Open Downloads and retry the download. The saved position is kept.", "Не удалось открыть офлайн-файл. Откройте «Загрузки» и скачайте его повторно. Сохранённая позиция останется.");
     const name = failure.name ? ` «${failure.name}»` : "";
     if (failure.code === "video" && android) return text("Cannot open video. Choose a video file or a recorded YouTube video, check the connection, and select Watch again. Audio playback continues.", "Не удалось открыть видео. Выберите видеофайл или записанный ролик YouTube, проверьте соединение и снова выберите «Смотреть». Звук продолжает идти.");
     if (failure.code === "video") return text("Cannot open video. Audio playback continues. Check the connection and yt-dlp, then select Listen and Watch to retry.", "Не удалось подключить видео. Звук продолжает воспроизводиться. Проверьте соединение и yt-dlp, затем переключите «Слушать» и «Смотреть» для повторной попытки.");
@@ -289,6 +291,7 @@
   {#if android && current?.kind === "video" && !playback.videoSupported}<p class="hint">{text("This APK plays audio only.", "Этот APK воспроизводит только звук.")}</p>{/if}
   {#if current?.temporary}<p class="hint">{text("Temporary file access. Use Open files to request lasting access.", "Временный доступ к файлу. Выберите его через «Открыть файлы», чтобы сохранить доступ.")}</p>{/if}
   {#if errorText}<p class="error" role="alert">{errorText}</p>{/if}
+  {#if android && playback.offline}<p class="hint">{text("Playing the downloaded copy. Position is shared with YouTube.", "Воспроизводится скачанная копия. Позиция общая с YouTube.")}</p>{/if}
   {#if android && playback.diagnosticsSupported && errorText}<button type="button" class="action" onclick={openDiagnostics} onpointerup={releasePointerFocus}>{text("Diagnostics", "Диагностика")}</button>{/if}
   {#if diagnosticsError}<p class="error" role="alert">{diagnosticsError}</p>{/if}
   {#if backgroundError}<p class="error" role="alert">{backgroundError}</p>{/if}
@@ -298,6 +301,7 @@
 <section class="workspace" aria-label={text("Library and tools", "Библиотека и инструменты")}>
   <nav class="workspace-nav" aria-label={text("Workspace", "Разделы")}>
     <button type="button" class:active={panel === "library"} aria-pressed={panel === "library"} onclick={() => panel = "library"} onpointerup={releasePointerFocus}>{text("Library", "Библиотека")}</button>
+    {#if android && playback.downloadsSupported}<button type="button" class:active={panel === "sources"} aria-pressed={panel === "sources"} onclick={() => panel = "sources"} onpointerup={releasePointerFocus}>{text("Downloads", "Загрузки")}</button>{/if}
     {#if nativeDesktop}
       <button type="button" class:active={panel === "sources"} aria-pressed={panel === "sources"} onclick={() => panel = "sources"} onpointerup={releasePointerFocus}>{text("Sources", "Источники")}</button>
       <button type="button" class:active={panel === "sleep"} aria-pressed={panel === "sleep"} onclick={() => panel = "sleep"} onpointerup={releasePointerFocus}>{text("Sleep", "Сон")}{#if playback.sleep && !["idle", "expired"].includes(playback.sleep.phase)}<span class="badge">{formatTime(playback.sleep.remainingSeconds)}</span>{/if}</button>
@@ -334,6 +338,7 @@
     <div class="workspace-panel" hidden={panel !== "sources"}><SourcesPanel /></div>
     <div class="workspace-panel" hidden={panel !== "sleep"}>{#if playback.sleep}<SleepPanel state={playback.sleep} oncommand={async action => { playback = await desktopPlayer()!.sleepCommand(action); }} onseek={time => { void command({ type: "seek", time }); }} />{/if}</div>
   {/if}
+  {#if android && playback.downloadsSupported}<div class="workspace-panel" hidden={panel !== "sources"}><AndroidDownloads {link} sourceUrl={playback.sourceUrl ?? ""} active={panel === "sources"} onplay={state => { playback = state; interfaceError = null; }} /></div>{/if}
   <div class="workspace-panel settings" hidden={panel !== "settings"}>
     {#if android && playback.diagnosticsSupported}<button type="button" class="action" onclick={openDiagnostics} onpointerup={releasePointerFocus}>{text("Playback diagnostics", "Диагностика плеера")}</button>{/if}
     {#if nativeDesktop}

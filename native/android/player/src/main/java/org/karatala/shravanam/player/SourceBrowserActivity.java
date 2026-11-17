@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Color;
 import android.os.Bundle;
+import android.os.Build;
 import android.os.Message;
 import android.text.InputFilter;
 import android.text.InputType;
@@ -22,6 +23,11 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.app.AlertDialog;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.core.content.ContextCompat;
+import android.content.pm.PackageManager;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 import com.getcapacitor.JSObject;
@@ -32,11 +38,15 @@ public final class SourceBrowserActivity extends AppCompatActivity {
     private TextView status;
     private Button listen;
     private Button watch;
+    private Button download;
     private WebView page;
     private PlaybackConnection connection;
     private String currentUrl = "https://m.youtube.com";
     private boolean resumed;
     private boolean handingOff;
+    private String downloadUrl;
+    private int downloadFormat;
+    private final ActivityResultLauncher<String> notifications = this.registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> this.startDownload());
 
     static void open(Activity activity, String input) {
         String url = SourceBrowserUrl.address(input);
@@ -73,12 +83,14 @@ public final class SourceBrowserActivity extends AppCompatActivity {
         this.watch = NativeControls.button(this, text("Watch", "Смотреть"), view -> this.handOff(false));
         actions.addView(this.listen);
         actions.addView(this.watch);
+        this.download = NativeControls.button(this, text("Download", "Скачать"), view -> this.chooseDownload());
+        actions.addView(this.download);
         actions.addView(NativeControls.button(this, text("Close", "Закрыть"), view -> this.finish()));
         this.root.addView(actions);
         this.status = new TextView(this);
         this.status.setTextSize(12);
         this.status.setTextColor(Color.LTGRAY);
-        this.status.setText(text("Open one YouTube video, then select Listen or Watch.", "Откройте ролик YouTube и выберите «Слушать» или «Смотреть»."));
+        this.status.setText(text("Open one YouTube video, then select Listen, Watch, or Download.", "Откройте ролик YouTube и выберите «Слушать», «Смотреть» или «Скачать»."));
         this.root.addView(this.status);
         this.setContentView(this.root);
         NativeControls.insets(this.root);
@@ -147,7 +159,7 @@ public final class SourceBrowserActivity extends AppCompatActivity {
             @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) { if (request.isForMainFrame()) SourceBrowserActivity.this.pageFailed(); }
             @Override public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse response) { if (request.isForMainFrame()) SourceBrowserActivity.this.pageFailed(); }
         });
-        this.page.setDownloadListener((url, agent, disposition, type, size) -> this.status.setText(text("Offline downloads are not available in this browser yet.", "Офлайн-загрузки в этом браузере пока недоступны.")));
+        this.page.setDownloadListener((url, agent, disposition, type, size) -> this.status.setText(text("Use Download above to save the current YouTube video.", "Для сохранения текущего ролика YouTube нажмите «Скачать» сверху.")));
         this.root.addView(this.page, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
         this.address.setText(this.currentUrl);
         this.updateActions();
@@ -178,6 +190,30 @@ public final class SourceBrowserActivity extends AppCompatActivity {
         catch (IllegalArgumentException failure) { supported = false; }
         this.listen.setEnabled(supported && !this.handingOff);
         this.watch.setEnabled(supported && !this.handingOff);
+        this.download.setEnabled(supported && !this.handingOff);
+    }
+
+    private void chooseDownload() {
+        String actual = this.page != null && this.page.getUrl() != null ? this.page.getUrl() : this.currentUrl;
+        try { this.downloadUrl = YouTubeSource.parse(actual).url; }
+        catch (IllegalArgumentException failure) { this.status.setText(text("Open one recorded YouTube video first.", "Сначала откройте один записанный ролик YouTube.")); return; }
+        new AlertDialog.Builder(this).setTitle(text("Save offline", "Сохранить без сети"))
+            .setItems(new String[] { text("Audio", "Аудио"), text("Video ≤480p", "Видео ≤480p"), text("Video ≤720p", "Видео ≤720p"), text("Video ≤1080p", "Видео ≤1080p") }, (dialog, which) -> {
+                this.downloadFormat = which;
+                if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, "android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) this.notifications.launch("android.permission.POST_NOTIFICATIONS");
+                else this.startDownload();
+            }).setNegativeButton(android.R.string.cancel, null).show();
+    }
+
+    private void startDownload() {
+        if (this.downloadUrl == null || this.isFinishing()) return;
+        try {
+            DownloadService.enqueue(this, this.downloadUrl, this.downloadFormat == 0, this.downloadFormat == 1 ? 480 : this.downloadFormat == 3 ? 1080 : 720, null);
+            this.status.setText(text("Added to Downloads in the main app. Playback is unchanged.", "Добавлено в «Загрузки» на главной странице. Воспроизведение продолжается."));
+        } catch (Exception failure) {
+            PlaybackDiagnostics.record("browser.download.failed", "Cannot start selected YouTube transfer", failure);
+            this.status.setText(failure instanceof IllegalStateException ? text("Another transfer is running or stopping. Return to Downloads to cancel it or retry.", "Другая загрузка ещё идёт или останавливается. Откройте «Загрузки», чтобы отменить её или повторить попытку.") : text("Cannot start the download. Check free storage and retry from Downloads in the main app.", "Не удалось начать загрузку. Проверьте свободное место и повторите попытку в разделе «Загрузки» на главной странице."));
+        }
     }
 
     private void pageFailed() { this.status.setText(text("Cannot load this page. Check the connection and address, then reload.", "Не удалось загрузить страницу. Проверьте соединение и адрес, затем обновите её.")); }

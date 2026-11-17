@@ -3,6 +3,7 @@ package org.karatala.shravanam.player;
 import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Color;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -231,24 +232,30 @@ public final class NativeVideoActivity extends AppCompatActivity {
             }
         });
         this.picture.setPlayer(this.video);
-        if (!file.youtube()) { this.prepareVideo(file, null, version); return; }
+        if (!file.youtube()) { this.prepareVideo(file, null, null, version); return; }
         String job = "shravanam-video-" + jobs.incrementAndGet();
+        String preferred = this.service.offlineDownload();
         this.extraction = this.worker.submit(() -> {
             try {
-                YouTubeResolver.Stream stream = YouTubeResolver.resolveVideo(this, YouTubeSource.parse(file.uri.toString()), job);
-                this.handler.post(() -> this.prepareVideo(file, stream, version));
+                OfflineDownloads.Copy local = OfflineDownloads.get(this).ready(file.id, true, preferred);
+                if (local == null) local = OfflineDownloads.get(this).ready(file.id, true, null);
+                OfflineDownloads.Job selected = OfflineDownloads.get(this).job(preferred);
+                if (local == null && selected != null && !selected.audioOnly) throw new java.io.IOException("The downloaded video is missing. Retry its download.");
+                Uri localUri = local == null ? null : Uri.fromFile(local.file);
+                YouTubeResolver.Stream stream = localUri == null ? YouTubeResolver.resolveVideo(this, YouTubeSource.parse(file.uri.toString()), job) : null;
+                this.handler.post(() -> this.prepareVideo(file, stream, localUri, version));
             } catch (Exception failure) { this.handler.post(() -> { if (this.resumed && version == this.generation) { PlaybackDiagnostics.record("youtube.video.resolve.failed", job, failure); this.videoFailed(); } }); }
         });
         this.timeout = () -> { if (this.resumed && version == this.generation) { PlaybackDiagnostics.record("youtube.video.timeout", job + " resolution exceeded 60s"); if (this.extraction != null) this.extraction.cancel(true); ++this.generation; this.videoFailed(); } };
         this.handler.postDelayed(this.timeout, 60000);
     }
 
-    private void prepareVideo(MediaFile file, YouTubeResolver.Stream stream, long version) {
+    private void prepareVideo(MediaFile file, YouTubeResolver.Stream stream, Uri localUri, long version) {
         if (!this.resumed || version != this.generation || this.service == null || PlaybackService.instance != this.service || this.video == null || this.service.currentMedia() == null || !file.id.equals(this.service.currentMedia().id)) return;
         if (this.timeout != null) this.handler.removeCallbacks(this.timeout);
         this.timeout = null;
         try {
-            MediaItem item = new MediaItem.Builder().setMediaId(file.id).setUri(stream == null ? file.uri.toString() : stream.url).build();
+            MediaItem item = new MediaItem.Builder().setMediaId(file.id).setUri(localUri != null ? localUri : stream == null ? file.uri : Uri.parse(stream.url)).build();
             DefaultMediaSourceFactory factory = new DefaultMediaSourceFactory(this);
             if (stream != null) factory.setDataSourceFactory(new DefaultDataSource.Factory(this, new DefaultHttpDataSource.Factory().setDefaultRequestProperties(stream.headers)));
             this.video.setMediaSource(factory.createMediaSource(item), Math.max(0, this.audio.getCurrentPosition()));

@@ -87,6 +87,7 @@ public final class PlaybackService extends MediaSessionService {
     private SharedPreferences settings;
     private JSONObject types;
     private MediaFile current;
+    private String offlineDownload = "";
     private JSObject error;
     private int backward;
     private int forward;
@@ -536,6 +537,7 @@ public final class PlaybackService extends MediaSessionService {
 
     Player sessionPlayer() { return this.controls; }
     MediaFile currentMedia() { return this.current; }
+    String offlineDownload() { return this.offlineDownload; }
     boolean openingMedia() { return this.openingFile || this.resolvingYouTube; }
     boolean failed() { return this.error != null; }
     boolean wantsVideo() { return this.videoRequested; }
@@ -678,6 +680,7 @@ public final class PlaybackService extends MediaSessionService {
         try {
             this.player.pause();
             this.current = file;
+            this.offlineDownload = "";
             this.player.setMediaItem(item, position);
             this.settings.edit().putString("last-media", file.id).apply();
             this.player.prepare();
@@ -696,7 +699,15 @@ public final class PlaybackService extends MediaSessionService {
         if (this.controls != null) this.controls.refresh();
     }
 
-    private void openYouTube(String input, boolean autoplay, Long resume) {
+    private void openYouTube(String input, boolean autoplay, Long resume) { this.openYouTube(input, autoplay, resume, null); }
+
+    void openDownload(OfflineDownloads.Copy copy, boolean watch) {
+        this.dismissResumption(false);
+        this.requestVideo(watch && copy.video);
+        this.openYouTube(copy.url, true, null, copy.id);
+    }
+
+    private void openYouTube(String input, boolean autoplay, Long resume, String preferredDownload) {
         YouTubeSource source;
         try { source = YouTubeSource.parse(input); }
         catch (IllegalArgumentException failure) { this.error = PlaybackService.failure("youtube-link", input == null ? "" : input.substring(0, Math.min(200, input.length()))); return; }
@@ -714,23 +725,33 @@ public final class PlaybackService extends MediaSessionService {
         PlaybackDiagnostics.record("youtube.audio.open", processId + " autoplay=" + autoplay + " positionMs=" + position);
         this.youtubeTask = this.youtubeWorker.submit(() -> {
             try {
-                YouTubeResolver.Stream stream = YouTubeResolver.resolve(this, source, processId);
+                OfflineDownloads.Copy found = null;
+                try { found = OfflineDownloads.get(this).ready(source.id, false, preferredDownload); }
+                catch (java.io.IOException failure) { if (preferredDownload != null) throw failure; PlaybackDiagnostics.record("offline.index.failed", "Streaming remains available", failure); }
+                final OfflineDownloads.Copy local = found;
+                if (preferredDownload != null && local == null) throw new java.io.IOException("The offline file is missing. Download it again.");
+                YouTubeResolver.Stream stream = local == null ? YouTubeResolver.resolve(this, source, processId) : null;
                 this.handler.post(() -> {
                     if (this.destroyed || version != this.selectionVersion) return;
                     boolean play = this.selectionAutoplay;
                     this.cancelYouTube();
-                    MediaFile file = MediaFile.youtube(source, stream.title);
+                    MediaFile file = MediaFile.youtube(source, local == null ? stream.title : local.title);
                     try {
                         this.saveProgress();
                         this.changingMedia = true;
                         this.player.pause();
                         this.current = file;
+                        this.offlineDownload = local == null ? "" : local.id;
                         this.files.put(file.id, file);
-                        DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory().setDefaultRequestProperties(stream.headers);
-                        DefaultMediaSourceFactory factory = new DefaultMediaSourceFactory(this).setDataSourceFactory(new DefaultDataSource.Factory(this, http));
-                        MediaItem item = new MediaItem.Builder().setMediaId(file.id).setUri(stream.url).setMediaMetadata(this.metadata(file)).build();
-                        ((ExoPlayer) this.player).setMediaSource(factory.createMediaSource(item), followCurrentClock ? Math.max(0, this.player.getCurrentPosition()) : position);
-                        PlaybackDiagnostics.record("youtube.audio.prepare", processId + " stream accepted by native player");
+                        MediaItem item = new MediaItem.Builder().setMediaId(file.id).setUri(local == null ? Uri.parse(stream.url) : Uri.fromFile(local.file)).setMediaMetadata(this.metadata(file)).build();
+                        long start = followCurrentClock ? Math.max(0, this.player.getCurrentPosition()) : position;
+                        if (local != null) this.player.setMediaItem(item, start);
+                        else {
+                            DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory().setDefaultRequestProperties(stream.headers);
+                            DefaultMediaSourceFactory factory = new DefaultMediaSourceFactory(this).setDataSourceFactory(new DefaultDataSource.Factory(this, http));
+                            ((ExoPlayer) this.player).setMediaSource(factory.createMediaSource(item), start);
+                        }
+                        PlaybackDiagnostics.record(local == null ? "youtube.audio.prepare" : "offline.audio.prepare", processId + " native source accepted at " + start + "ms");
                         this.player.prepare();
                         this.settings.edit().putString("last-media", file.id).apply();
                         this.remember(java.util.Collections.singletonList(file));
@@ -745,8 +766,9 @@ public final class PlaybackService extends MediaSessionService {
                     this.cancelYouTube();
                     PlaybackDiagnostics.record("youtube.audio.resolve.failed", processId, failure);
                     Log.e("Shravanam", "Cannot resolve YouTube audio");
-                    this.error = PlaybackService.failure(failure instanceof YouTubeResolver.UnsupportedLive ? "youtube-live" : "youtube", source.url);
-                    this.failResumption(failure instanceof YouTubeResolver.UnsupportedLive ? "youtube-live" : "youtube", source.url);
+                    String code = preferredDownload != null ? "offline" : failure instanceof YouTubeResolver.UnsupportedLive ? "youtube-live" : "youtube";
+                    this.error = PlaybackService.failure(code, source.url);
+                    this.failResumption(code, source.url);
                 });
             }
         });
@@ -832,7 +854,8 @@ public final class PlaybackService extends MediaSessionService {
         for (MediaFile file : this.recentLinks) recentLinks.put(file.snapshot());
         long duration = this.player.getDuration();
         return new JSObject().put("items", items).put("recent", recent).put("recentLinks", recentLinks).put("youtubeSupported", true).put("currentId", this.resuming != null ? this.resuming.id : this.current == null ? JSONObject.NULL : this.current.id)
-            .put("videoSupported", true).put("sourceBrowserSupported", true).put("diagnosticsSupported", PlaybackDiagnostics.enabled(this)).put("audioOnly", !this.videoRequested)
+            .put("videoSupported", true).put("sourceBrowserSupported", true).put("downloadsSupported", true).put("offline", !this.offlineDownload.isEmpty()).put("diagnosticsSupported", PlaybackDiagnostics.enabled(this)).put("audioOnly", !this.videoRequested)
+            .put("sourceUrl", this.current != null && this.current.youtube() ? this.current.uri.toString() : "")
             .put("videoLoading", this.videoLoading).put("videoError", this.videoError == null ? JSONObject.NULL : this.videoError)
             .put("time", (this.resuming != null ? this.resumePosition : Math.max(0, this.player.getCurrentPosition())) / 1000.0).put("duration", this.resuming == null && duration > 0 ? duration / 1000.0 : 0)
             .put("paused", this.paused())
