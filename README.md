@@ -120,6 +120,8 @@ PWA URLs are relative, so the output can be hosted at a root or a subpath. No pu
 
 ## Android LAN development
 
+Android debug APKs include **Playback diagnostics** in Settings and a **Diagnostics** button beside playback errors. If the web interface does not work, use the native **Server → Playback diagnostics** button. Reproduce the error, open the report, and tap **Copy**. The report includes APK/device versions, extraction stages and stderr, HTTP probe status, and Media3 error codes with exception causes. Refresh updates the displayed report. Logs stay in process memory and reset when the process exits; URLs, paths, and credentials are removed before storage and Logcat (`ShravanamDebug`). A new APK is required for this native feature; reloading the LAN interface alone does not add it. Release APKs keep diagnostics disabled.
+
 Install the Android debug APK from GitHub once. It includes a native **Server** button at the top right, independent of the web interface. The phone and computer must use the same reachable Wi-Fi network. Allow Bun through the firewall for private networks on port 3001. Use this mode only for development on a trusted network.
 
 1. Run `bun run dev:android` and keep its terminal open. It prints the available LAN URLs and preparation commands. In VS Code, `Debug Android LAN` or `Dev Android LAN` starts the same server.

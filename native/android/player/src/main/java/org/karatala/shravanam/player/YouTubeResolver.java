@@ -3,6 +3,7 @@ package org.karatala.shravanam.player;
 import android.content.Context;
 import com.yausername.youtubedl_android.YoutubeDL;
 import com.yausername.youtubedl_android.YoutubeDLRequest;
+import com.yausername.youtubedl_android.YoutubeDLResponse;
 import java.net.URI;
 import java.net.URL;
 import java.net.HttpURLConnection;
@@ -35,15 +36,24 @@ final class YouTubeResolver {
     }
 
     private static Stream resolve(Context context, YouTubeSource source, String processId, boolean video) throws Exception {
-        YoutubeDL.INSTANCE.init(context.getApplicationContext());
+        PlaybackDiagnostics.initialize(context);
+        String stage = video ? "youtube.video" : "youtube.audio";
+        PlaybackDiagnostics.record(stage + ".init", processId);
+        try { YoutubeDL.INSTANCE.init(context.getApplicationContext()); }
+        catch (LinkageError failure) { throw new IOException("Cannot initialize the packaged YouTube runtime", failure); }
         if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
         YoutubeDLRequest request = new YoutubeDLRequest(source.url);
         for (String option : new String[] { "--ignore-config", "--no-plugin-dirs", "--no-remote-components", "--no-cache-dir", "--no-playlist", "--no-check-formats", "--skip-download", "--dump-single-json" }) request.addOption(option);
         request.addOption("--socket-timeout", "15").addOption("--retries", "1").addOption("--extractor-retries", "1").addOption("-f", video ? "bestvideo[protocol=https][height<=1080]/best[protocol=https][height<=1080]" : "bestaudio[protocol=https]/best[protocol=https]");
         if (video) request.addOption("-S", "res:1080,vcodec:h264");
-        String output = YoutubeDL.INSTANCE.execute(request, processId).getOut();
+        if (PlaybackDiagnostics.enabled(context)) request.addOption("--verbose");
+        PlaybackDiagnostics.record(stage + ".extract", processId + " starting packaged yt-dlp; network timeout 15s");
+        YoutubeDLResponse response = YoutubeDL.INSTANCE.execute(request, processId);
+        PlaybackDiagnostics.record(stage + ".extract.done", processId + " exit=" + response.getExitCode() + " elapsedMs=" + response.getElapsedTime() + "\n" + response.getErr());
+        String output = response.getOut();
+        PlaybackDiagnostics.record(stage + ".parse", processId + " metadataChars=" + output.length());
         Stream selected = parse(output, source, video);
-        if (available(selected)) return selected;
+        if (available(selected, stage, processId, 1)) return selected;
         JSONObject info = new JSONObject(output);
         JSONArray formats = info.optJSONArray("formats");
         Set<String> tried = new HashSet<>();
@@ -58,13 +68,13 @@ final class YouTubeResolver {
             try { alternative = stream(info, candidate, video); }
             catch (Exception failure) { continue; }
             if (!tried.add(alternative.url)) continue;
-            if (tried.size() > 6) throw new IOException("No available audio stream");
-            if (available(alternative)) return alternative;
+            if (tried.size() > 6) throw new IOException("No available " + (video ? "video" : "audio") + " stream after 6 probes; see HTTP probe results");
+            if (available(alternative, stage, processId, tried.size())) return alternative;
         }
-        throw new IOException("No available audio stream");
+        throw new IOException("No available " + (video ? "video" : "audio") + " stream after " + tried.size() + " probes; see HTTP probe results");
     }
 
-    private static boolean available(Stream stream) throws InterruptedException {
+    private static boolean available(Stream stream, String stage, String processId, int attempt) throws InterruptedException {
         if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
         HttpURLConnection connection = null;
         try {
@@ -76,9 +86,14 @@ final class YouTubeResolver {
             for (Map.Entry<String, String> header : stream.headers.entrySet()) connection.setRequestProperty(header.getKey(), header.getValue());
             connection.setRequestProperty("Range", "bytes=0-0");
             int status = connection.getResponseCode();
+            PlaybackDiagnostics.record(stage + ".probe", processId + " attempt=" + attempt + " HTTP " + status);
             if (status != 200 && status != 206) return false;
-            try (InputStream input = connection.getInputStream()) { return input.read() >= 0; }
-        } catch (IOException failure) { return false; }
+            try (InputStream input = connection.getInputStream()) {
+                boolean readable = input.read() >= 0;
+                PlaybackDiagnostics.record(stage + ".probe.done", processId + " attempt=" + attempt + " readable=" + readable);
+                return readable;
+            }
+        } catch (IOException failure) { PlaybackDiagnostics.record(stage + ".probe.failed", processId + " attempt=" + attempt, failure); return false; }
         finally { if (connection != null) connection.disconnect(); }
     }
 
@@ -123,6 +138,7 @@ final class YouTubeResolver {
         }
         String title = info.optString("title", info.getString("id"));
         if (title.trim().isEmpty()) title = info.getString("id");
+        PlaybackDiagnostics.record(video ? "youtube.video.format" : "youtube.audio.format", "format=" + format.optString("format_id") + " acodec=" + format.optString("acodec") + " vcodec=" + format.optString("vcodec") + " protocol=https height=" + format.optInt("height"));
         return new Stream(uri.toString(), title.substring(0, Math.min(300, title.length())), headers);
     }
 }

@@ -115,6 +115,9 @@ test("standard Android preparation includes runtime server settings and the debu
   expect(await Bun.file(join(modulePath, "src/test/java/org/karatala/shravanam/player/DevelopmentServerUrlTest.java")).exists()).toBe(true);
   expect(await Bun.file(join(modulePath, "src/test/java/org/karatala/shravanam/player/SystemControlsTest.java")).exists()).toBe(true);
   expect(await Bun.file(join(modulePath, "src/test/java/org/karatala/shravanam/player/PlaybackResumeTest.java")).exists()).toBe(true);
+  expect(await Bun.file(join(modulePath, "src/test/java/org/karatala/shravanam/player/DiagnosticLogTest.java")).exists()).toBe(true);
+  expect(await Bun.file(join(modulePath, "src/main/java/org/karatala/shravanam/player/PlaybackDiagnostics.java")).exists()).toBe(true);
+  expect(await Bun.file(join(modulePath, "src/main/java/org/karatala/shravanam/player/DiagnosticLog.java")).exists()).toBe(true);
   expect(await Bun.file(join(modulePath, "src/main/java/org/karatala/shravanam/player/ResumeMediaButtonReceiver.java")).exists()).toBe(true);
   expect(await Bun.file(join(modulePath, "src/main/java/org/karatala/shravanam/player/SavedPlayback.java")).exists()).toBe(true);
   expect(await readFile(join(modulePath, "src/main/res/values/strings.xml"), "utf8")).toContain('name="shravanam_playback_channel"');

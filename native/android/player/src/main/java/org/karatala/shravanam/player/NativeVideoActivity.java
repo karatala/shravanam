@@ -221,12 +221,14 @@ public final class NativeVideoActivity extends AppCompatActivity {
         this.video.addListener(new Player.Listener() {
             @Override public void onPlaybackStateChanged(int state) {
                 if (!NativeVideoActivity.this.resumed || version != NativeVideoActivity.this.generation) return;
-                if (state == Player.STATE_READY && !NativeVideoActivity.this.video.getCurrentTracks().isTypeSelected(C.TRACK_TYPE_VIDEO)) { NativeVideoActivity.this.videoFailed(); return; }
+                if (state == Player.STATE_READY && !NativeVideoActivity.this.video.getCurrentTracks().isTypeSelected(C.TRACK_TYPE_VIDEO)) { PlaybackDiagnostics.record("video.tracks.failed", "No selected video track"); NativeVideoActivity.this.videoFailed(); return; }
                 if (state == Player.STATE_BUFFERING) NativeVideoActivity.this.bufferStarted = SystemClock.elapsedRealtime();
                 if (state == Player.STATE_READY && NativeVideoActivity.this.bufferStarted > 0) { NativeVideoActivity.this.bufferTime = SystemClock.elapsedRealtime() - NativeVideoActivity.this.bufferStarted; NativeVideoActivity.this.bufferStarted = 0; }
             }
             @Override public void onRenderedFirstFrame() { if (NativeVideoActivity.this.resumed && version == NativeVideoActivity.this.generation) NativeVideoActivity.this.frame = true; }
-            @Override public void onPlayerError(PlaybackException failure) { if (NativeVideoActivity.this.resumed && version == NativeVideoActivity.this.generation) NativeVideoActivity.this.videoFailed(); }
+            @Override public void onPlayerError(PlaybackException failure) {
+                if (NativeVideoActivity.this.resumed && version == NativeVideoActivity.this.generation) { PlaybackDiagnostics.record("video.player.failed", "Secondary video renderer", failure); NativeVideoActivity.this.videoFailed(); }
+            }
         });
         this.picture.setPlayer(this.video);
         if (!file.youtube()) { this.prepareVideo(file, null, version); return; }
@@ -235,9 +237,9 @@ public final class NativeVideoActivity extends AppCompatActivity {
             try {
                 YouTubeResolver.Stream stream = YouTubeResolver.resolveVideo(this, YouTubeSource.parse(file.uri.toString()), job);
                 this.handler.post(() -> this.prepareVideo(file, stream, version));
-            } catch (Exception failure) { this.handler.post(() -> { if (this.resumed && version == this.generation) this.videoFailed(); }); }
+            } catch (Exception failure) { this.handler.post(() -> { if (this.resumed && version == this.generation) { PlaybackDiagnostics.record("youtube.video.resolve.failed", job, failure); this.videoFailed(); } }); }
         });
-        this.timeout = () -> { if (this.resumed && version == this.generation) { if (this.extraction != null) this.extraction.cancel(true); ++this.generation; this.videoFailed(); } };
+        this.timeout = () -> { if (this.resumed && version == this.generation) { PlaybackDiagnostics.record("youtube.video.timeout", job + " resolution exceeded 60s"); if (this.extraction != null) this.extraction.cancel(true); ++this.generation; this.videoFailed(); } };
         this.handler.postDelayed(this.timeout, 60000);
     }
 
@@ -251,7 +253,7 @@ public final class NativeVideoActivity extends AppCompatActivity {
             if (stream != null) factory.setDataSourceFactory(new DefaultDataSource.Factory(this, new DefaultHttpDataSource.Factory().setDefaultRequestProperties(stream.headers)));
             this.video.setMediaSource(factory.createMediaSource(item), Math.max(0, this.audio.getCurrentPosition()));
             this.video.prepare();
-        } catch (RuntimeException failure) { this.videoFailed(); }
+        } catch (RuntimeException failure) { PlaybackDiagnostics.record("video.prepare.failed", "Cannot prepare secondary renderer", failure); this.videoFailed(); }
     }
 
     private void videoFailed() {

@@ -37,6 +37,7 @@
   let link = $state("");
   let openingLink = $state(false);
   let androidBrowserError = $state("");
+  let diagnosticsError = $state("");
   let nativeLibrary = $state.raw<NativeLibraryState | null>(null);
   let libraryError = $state("");
   let libraryLoading = $state(false);
@@ -140,6 +141,11 @@
     androidBrowserError = "";
     try { await androidPlayer.openBrowser({ url: link.trim() }); }
     catch (error) { console.error(error); androidBrowserError = text("Cannot open the browser. Enter an HTTPS address, for example https://m.youtube.com, or clear the field and try again.", "Не удалось открыть браузер. Введите HTTPS-адрес, например https://m.youtube.com, или очистите поле и повторите попытку."); }
+  }
+  async function openDiagnostics() {
+    diagnosticsError = "";
+    try { await androidPlayer.showDiagnostics(); }
+    catch (error) { console.error(error); diagnosticsError = text("Cannot open diagnostics. Use Server → Playback diagnostics in a current debug APK.", "Не удалось открыть диагностику. Откройте «Сервер → Диагностика плеера» в свежем debug APK."); }
   }
   async function libraryCommand(action: LibraryCommand) {
     libraryLoading = true;
@@ -283,6 +289,8 @@
   {#if android && current?.kind === "video" && !playback.videoSupported}<p class="hint">{text("This APK plays audio only.", "Этот APK воспроизводит только звук.")}</p>{/if}
   {#if current?.temporary}<p class="hint">{text("Temporary file access. Use Open files to request lasting access.", "Временный доступ к файлу. Выберите его через «Открыть файлы», чтобы сохранить доступ.")}</p>{/if}
   {#if errorText}<p class="error" role="alert">{errorText}</p>{/if}
+  {#if android && playback.diagnosticsSupported && errorText}<button type="button" class="action" onclick={openDiagnostics} onpointerup={releasePointerFocus}>{text("Diagnostics", "Диагностика")}</button>{/if}
+  {#if diagnosticsError}<p class="error" role="alert">{diagnosticsError}</p>{/if}
   {#if backgroundError}<p class="error" role="alert">{backgroundError}</p>{/if}
   {#if androidBrowserError}<p class="error" role="alert">{androidBrowserError}</p>{/if}
 </section>
@@ -327,6 +335,7 @@
     <div class="workspace-panel" hidden={panel !== "sleep"}>{#if playback.sleep}<SleepPanel state={playback.sleep} oncommand={async action => { playback = await desktopPlayer()!.sleepCommand(action); }} onseek={time => { void command({ type: "seek", time }); }} />{/if}</div>
   {/if}
   <div class="workspace-panel settings" hidden={panel !== "settings"}>
+    {#if android && playback.diagnosticsSupported}<button type="button" class="action" onclick={openDiagnostics} onpointerup={releasePointerFocus}>{text("Playback diagnostics", "Диагностика плеера")}</button>{/if}
     {#if nativeDesktop}
       <h3>{text("Player", "Плеер")}</h3>
       <form class="controls" onsubmit={async event => { event.preventDefault(); savingMpvPath = true; try { await command({ type: "mpv-path", value: mpvPath }); } finally { savingMpvPath = false; } }}>

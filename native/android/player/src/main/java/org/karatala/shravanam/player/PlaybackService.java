@@ -123,6 +123,8 @@ public final class PlaybackService extends MediaSessionService {
     @Override
     public void onCreate() {
         super.onCreate();
+        PlaybackDiagnostics.initialize(this);
+        PlaybackDiagnostics.record("audio.service.create", "Native audio owner created");
         this.settings = this.getSharedPreferences("shravanam.playback", MODE_PRIVATE);
         this.backward = Math.max(1, Math.min(600, this.settings.getInt("backward", 15)));
         this.forward = Math.max(1, Math.min(600, this.settings.getInt("forward", 30)));
@@ -197,13 +199,17 @@ public final class PlaybackService extends MediaSessionService {
                 }
             }
             @Override public void onPlayerError(PlaybackException failure) {
+                PlaybackDiagnostics.record("audio.player.failed", "source=" + (PlaybackService.this.current != null && PlaybackService.this.current.youtube() ? "youtube" : "local"), failure);
                 if (PlaybackService.this.current != null && PlaybackService.this.current.youtube()) Log.e("Shravanam", "YouTube playback failed: " + failure.errorCode);
-                else Log.e("Shravanam", "Android playback failed", failure);
+                else Log.e("Shravanam", "Android playback failed: " + failure.errorCode);
                 PlaybackService.this.error = PlaybackService.failure(failure.errorCode == PlaybackException.ERROR_CODE_IO_NO_PERMISSION ? "access" : "play", PlaybackService.this.current == null ? null : PlaybackService.this.current.name);
                 if (PlaybackService.this.current != null && PlaybackService.this.current.youtube()) PlaybackService.this.settings.edit().putLong("position." + PlaybackService.this.current.id, Math.max(0, PlaybackService.this.player.getCurrentPosition())).apply();
                 PlaybackService.this.failResumption("play", PlaybackService.this.current == null ? null : PlaybackService.this.current.name);
             }
             @Override public void onEvents(Player player, Player.Events events) {
+                if (events.containsAny(Player.EVENT_PLAYBACK_STATE_CHANGED, Player.EVENT_PLAY_WHEN_READY_CHANGED, Player.EVENT_PLAYBACK_SUPPRESSION_REASON_CHANGED)) {
+                    PlaybackDiagnostics.record("audio.player.state", "state=" + player.getPlaybackState() + " (1=idle,2=buffering,3=ready,4=ended) play=" + player.getPlayWhenReady() + " suppression=" + player.getPlaybackSuppressionReason() + " positionMs=" + player.getCurrentPosition());
+                }
                 if (events.containsAny(Player.EVENT_POSITION_DISCONTINUITY, Player.EVENT_PLAY_WHEN_READY_CHANGED, Player.EVENT_PLAYBACK_STATE_CHANGED, Player.EVENT_PLAYBACK_PARAMETERS_CHANGED)) {
                     boolean flush = !PlaybackService.this.changingMedia && ((!player.getPlayWhenReady() && events.contains(Player.EVENT_PLAY_WHEN_READY_CHANGED)) || player.getPlaybackState() == Player.STATE_ENDED);
                     PlaybackService.this.saveProgress(flush);
@@ -705,6 +711,7 @@ public final class PlaybackService extends MediaSessionService {
         long position = resume != null ? resume : source.start != null ? source.start : Math.max(0, this.settings.getLong("position." + source.id, 0));
         boolean followCurrentClock = resume == null && source.start == null && this.current != null && source.id.equals(this.current.id) && this.player.getPlayerError() == null;
         String processId = "shravanam-youtube-" + youtubeJobs.incrementAndGet();
+        PlaybackDiagnostics.record("youtube.audio.open", processId + " autoplay=" + autoplay + " positionMs=" + position);
         this.youtubeTask = this.youtubeWorker.submit(() -> {
             try {
                 YouTubeResolver.Stream stream = YouTubeResolver.resolve(this, source, processId);
@@ -723,18 +730,20 @@ public final class PlaybackService extends MediaSessionService {
                         DefaultMediaSourceFactory factory = new DefaultMediaSourceFactory(this).setDataSourceFactory(new DefaultDataSource.Factory(this, http));
                         MediaItem item = new MediaItem.Builder().setMediaId(file.id).setUri(stream.url).setMediaMetadata(this.metadata(file)).build();
                         ((ExoPlayer) this.player).setMediaSource(factory.createMediaSource(item), followCurrentClock ? Math.max(0, this.player.getCurrentPosition()) : position);
+                        PlaybackDiagnostics.record("youtube.audio.prepare", processId + " stream accepted by native player");
                         this.player.prepare();
                         this.settings.edit().putString("last-media", file.id).apply();
                         this.remember(java.util.Collections.singletonList(file));
                         if (play) this.player.play();
                         this.acceptedResumption(file);
-                    } catch (RuntimeException failure) { this.error = PlaybackService.failure("youtube", source.url); this.failResumption("youtube", source.url); }
+                    } catch (RuntimeException failure) { PlaybackDiagnostics.record("youtube.audio.prepare.failed", processId, failure); this.error = PlaybackService.failure("youtube", source.url); this.failResumption("youtube", source.url); }
                     finally { this.changingMedia = false; this.finishResumeNotification(); }
                 });
             } catch (Exception failure) {
                 this.handler.post(() -> {
                     if (this.destroyed || version != this.selectionVersion) return;
                     this.cancelYouTube();
+                    PlaybackDiagnostics.record("youtube.audio.resolve.failed", processId, failure);
                     Log.e("Shravanam", "Cannot resolve YouTube audio");
                     this.error = PlaybackService.failure(failure instanceof YouTubeResolver.UnsupportedLive ? "youtube-live" : "youtube", source.url);
                     this.failResumption(failure instanceof YouTubeResolver.UnsupportedLive ? "youtube-live" : "youtube", source.url);
@@ -743,6 +752,7 @@ public final class PlaybackService extends MediaSessionService {
         });
         this.youtubeTimeout = () -> {
             if (this.destroyed || version != this.selectionVersion || !this.resolvingYouTube) return;
+            PlaybackDiagnostics.record("youtube.audio.timeout", processId + " resolution exceeded 60s; work cancelled");
             ++this.selectionVersion;
             this.cancelYouTube();
             this.error = PlaybackService.failure("youtube", source.url);
@@ -822,7 +832,7 @@ public final class PlaybackService extends MediaSessionService {
         for (MediaFile file : this.recentLinks) recentLinks.put(file.snapshot());
         long duration = this.player.getDuration();
         return new JSObject().put("items", items).put("recent", recent).put("recentLinks", recentLinks).put("youtubeSupported", true).put("currentId", this.resuming != null ? this.resuming.id : this.current == null ? JSONObject.NULL : this.current.id)
-            .put("videoSupported", true).put("sourceBrowserSupported", true).put("audioOnly", !this.videoRequested)
+            .put("videoSupported", true).put("sourceBrowserSupported", true).put("diagnosticsSupported", PlaybackDiagnostics.enabled(this)).put("audioOnly", !this.videoRequested)
             .put("videoLoading", this.videoLoading).put("videoError", this.videoError == null ? JSONObject.NULL : this.videoError)
             .put("time", (this.resuming != null ? this.resumePosition : Math.max(0, this.player.getCurrentPosition())) / 1000.0).put("duration", this.resuming == null && duration > 0 ? duration / 1000.0 : 0)
             .put("paused", this.paused())
@@ -844,6 +854,7 @@ public final class PlaybackService extends MediaSessionService {
 
     @Override
     public void onDestroy() {
+        PlaybackDiagnostics.record("audio.service.destroy", "Native audio owner released");
         this.destroyed = true;
         ++this.selectionVersion;
         this.cancelYouTube();

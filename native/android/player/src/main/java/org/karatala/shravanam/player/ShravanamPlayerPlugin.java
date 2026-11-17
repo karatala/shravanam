@@ -66,14 +66,22 @@ public final class ShravanamPlayerPlugin extends Plugin {
     }
 
     private void run(PluginCall call, Consumer<PlaybackService> action) {
+        PlaybackDiagnostics.initialize(this.getContext());
         this.getActivity().runOnUiThread(() -> this.withService(action, failure -> {
-            Log.e("Shravanam", "Native player request failed", failure);
+            PlaybackDiagnostics.record("bridge.player.failed", "Cannot connect or complete native player request", failure);
+            Log.e("Shravanam", "Native player request failed; see debug playback diagnostics");
             call.reject("Cannot connect to the Android player. Close and reopen the app.", failure);
         }));
     }
 
     @PluginMethod
     public void getPlaybackState(PluginCall call) { this.run(call, service -> call.resolve(service.snapshot())); }
+
+    @PluginMethod
+    public void showDiagnostics(PluginCall call) {
+        if (!PlaybackDiagnostics.enabled(this.getContext())) { call.reject("Diagnostics require a debug APK."); return; }
+        this.getActivity().runOnUiThread(() -> { PlaybackDiagnostics.show(this.getActivity()); call.resolve(); });
+    }
 
     @PluginMethod
     public void playbackCommand(PluginCall call) {

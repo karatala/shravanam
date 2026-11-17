@@ -80,6 +80,7 @@ public final class DevelopmentServer {
         if (!enabled(activity) || activity.isFinishing()) return;
         String currentUrl = activity.getBridge().getServerUrl();
         LinearLayout content = new LinearLayout(activity);
+        content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(pixels(activity, 20), pixels(activity, 8), pixels(activity, 20), 0);
         EditText address = new EditText(activity);
         address.setSingleLine(true);
@@ -88,6 +89,7 @@ public final class DevelopmentServer {
         address.setText(currentUrl == null ? "" : currentUrl);
         address.setSelectAllOnFocus(true);
         content.addView(address, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        content.addView(NativeControls.button(activity, text(activity, "Playback diagnostics", "Диагностика плеера"), view -> PlaybackDiagnostics.show(activity)));
         AlertDialog dialog = new AlertDialog.Builder(activity)
             .setTitle(text(activity, "Development server", "Сервер разработки"))
             .setMessage(text(activity, "Current interface: ", "Текущий интерфейс: ") + (currentUrl == null ? text(activity, "built-in", "встроенный") : currentUrl))

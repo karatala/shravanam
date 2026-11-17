@@ -6,6 +6,7 @@ interface AndroidPlayerPlugin {
   getPlaybackState(): Promise<PlaybackState>;
   playbackCommand(options: { command: PlaybackCommand }): Promise<PlaybackState>;
   openBrowser(options: { url?: string }): Promise<void>;
+  showDiagnostics(): Promise<void>;
 }
 
 export const androidPlayer = registerPlugin<AndroidPlayerPlugin>("ShravanamPlayer");

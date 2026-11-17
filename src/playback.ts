@@ -18,6 +18,7 @@ export type PlaybackState = {
   youtubeSupported?: boolean;
   videoSupported?: boolean;
   sourceBrowserSupported?: boolean;
+  diagnosticsSupported?: boolean;
   currentId: string | null;
   libraryMediaId?: string | null;
   time: number;

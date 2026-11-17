@@ -18,6 +18,7 @@
 - `SleepPanel.svelte` owns desktop timer and spoken-time settings. `sleep.ts` defines validated settings and state; the Bun host owns the actual clock, signals, pause, and speech.
 - `data/` owns the shared record model, archive codec, browser migration, and transactional storage under its child contract.
 - `android-player.ts` defines the local Capacitor playback plugin contract.
+- Android debug snapshots advertise `diagnosticsSupported`. Show the native report action beside playback errors and in Settings through `showDiagnostics`; keep the report and clipboard in native code so LAN HTTP and a failed playback binding do not limit access. Older/release APKs do not advertise this action. The native Server dialog remains the recovery entry when the interface cannot run.
 - `bun-player.ts` defines the authenticated same-origin control bridge for browser development. It carries commands and snapshots, without media bytes or local file paths.
 - `env.d.ts` defines the narrow desktop window, media, and source bridges.
 - `SourcesPanel.svelte` owns manual downloads and userscript import/editing. `SourceTools.svelte` owns the separate website window's toolbar. `sources.ts` validates their commands and snapshots; `source-client.ts` selects the native bridge or authenticated Bun transport.
