@@ -1,5 +1,11 @@
 apply plugin: 'com.android.library'
 
+ext {
+    androidxActivityVersion = rootProject.ext.has('androidxActivityVersion') ? rootProject.ext.androidxActivityVersion : '1.11.0'
+    androidxAppCompatVersion = rootProject.ext.has('androidxAppCompatVersion') ? rootProject.ext.androidxAppCompatVersion : '1.7.1'
+    androidxCoreVersion = rootProject.ext.has('androidxCoreVersion') ? rootProject.ext.androidxCoreVersion : '1.17.0'
+}
+
 android {
     namespace 'org.karatala.shravanam.player'
     compileSdk rootProject.ext.compileSdkVersion
@@ -14,6 +20,9 @@ android {
 
 dependencies {
     implementation project(':capacitor-android')
+    implementation "androidx.activity:activity:$androidxActivityVersion"
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.core:core:$androidxCoreVersion"
     implementation 'androidx.media3:media3-exoplayer:1.11.1'
     implementation 'androidx.media3:media3-session:1.11.1'
 }

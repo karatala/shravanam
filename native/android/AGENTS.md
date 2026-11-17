@@ -21,6 +21,7 @@
 - Publish play/pause and time jumps through Media3. Map received previous/next commands to the configured time jumps. Button visibility and headset behavior still require device checks. Do not intercept volume buttons.
 - Let Media3 own foreground notifications and service lifetime. Enable audio-focus handling, pause on disconnected audio outputs, and use a playback wake lock. Do not release the service when Capacitor pauses or destroys its UI.
 - Use pinned Media3 versions. Do not edit generated Android copies as durable source, and do not run preparation or native builds unless requested.
+- Declare Activity, AppCompat, and Core directly in `player/build.gradle`: Capacitor keeps its AndroidX dependencies in `implementation`, so they are not on this module's compile classpath. Match root version overrides, with defaults from the pinned Capacitor version. Do not change Capacitor internals to export these dependencies.
 
 ## Work Guidance
 

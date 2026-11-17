@@ -137,9 +137,9 @@ Default browser debugging controls actual mpv playback through Bun. Native windo
 
 `.github/workflows/build.yml` follows Rachana's build pattern for the current delivery targets. It runs on pull requests, tag pushes, and manual dispatch. Ordinary branch pushes do not trigger it. Once the workflow is on the default branch, use **Actions → Cross-platform build → Run workflow** for a manual run.
 
-The web job runs `bun run check` and builds the PWA. Native jobs build Windows x64, Linux x64, macOS arm64/x64, and an Android debug APK. Android preparation includes the native player overlay before Gradle builds it. Download successful outputs from the run's **Artifacts** section; retention is 14 days. Desktop packages still need installed mpv or, on macOS, IINA. Android debug artifacts use the runner's generated debug key, not a stable distribution key.
+Only Android CI is active for now. Web and desktop jobs remain defined but are temporarily skipped with job-level conditions, so no PWA or desktop artifacts are built. The Android job runs `bun run check`, prepares the native player overlay, and builds a debug APK. Download the Android APK from the run's **Artifacts** section; retention is 14 days. It uses the runner's generated debug key, not a stable distribution key.
 
-CI uses read-only repository access and no custom secrets. The configuration is added locally; a successful GitHub run is still pending. It does not publish a GitHub Release, deploy a PWA, or build iOS. Rachana's release destination and Pages settings are not inherited.
+CI uses read-only repository access and no custom secrets. After this updated workflow reaches GitHub, start a run at the updated commit; rerunning an older run uses its older workflow definition. A successful remote Android run is still pending. There are no release-publication jobs: this workflow does not publish a GitHub Release, deploy a PWA, or build iOS. Rachana's release destination and Pages settings are not inherited.
 
 ## Data portability and synchronization
 
