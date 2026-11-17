@@ -103,6 +103,9 @@ test("standard Android preparation includes runtime server settings and the debu
   expect(debugManifest).toContain('android:usesCleartextTraffic="true"');
   const mainManifest = await readFile(join(modulePath, "src/main/AndroidManifest.xml"), "utf8");
   expect(mainManifest).not.toContain("usesCleartextTraffic");
+  expect(mainManifest).toContain('android:extractNativeLibs="true"');
+  expect(await readFile(join(directory, "android/app/build.gradle"), "utf8")).toContain("useLegacyPackaging = true");
+  expect(await Bun.file(join(modulePath, "src/main/java/org/karatala/shravanam/player/YouTubeResolver.java")).exists()).toBe(true);
   expect(await Bun.file(join(modulePath, "src/main/java/org/karatala/shravanam/player/DevelopmentServer.java")).exists()).toBe(true);
   expect(await Bun.file(join(modulePath, "src/test/java/org/karatala/shravanam/player/DevelopmentServerUrlTest.java")).exists()).toBe(true);
   expect(await readFile(join(directory, "android/app/src/main/java/org/karatala/shravanam/MainActivity.java"), "utf8")).toContain("DevelopmentServer.configuration(this)");

@@ -25,6 +25,7 @@
   const android = Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
   const nativePlayer = nativeDesktop || android;
   let playback: PlaybackState = $state(initialPlaybackState());
+  const youtubeAvailable = $derived(nativeDesktop || (android && playback.youtubeSupported === true));
   let interfaceError = $state<PlaybackError | null>(null);
   let mediaElement = $state<HTMLVideoElement>();
   let fileInput: HTMLInputElement;
@@ -56,6 +57,7 @@
     if (failure.code === "video") return text("Cannot open video. Audio playback continues. Check the connection and yt-dlp, then select Listen and Watch to retry.", "Не удалось подключить видео. Звук продолжает воспроизводиться. Проверьте соединение и yt-dlp, затем переключите «Слушать» и «Смотреть» для повторной попытки.");
     if (failure.code === "youtube-link") return text(`Cannot open link${name}. Paste an HTTPS link to one YouTube video, for example https://www.youtube.com/watch?v=dQw4w9WgXcQ. Playlist-only links and other sites are not supported yet.`, `Не удалось открыть ссылку${name}. Вставьте HTTPS-ссылку на один ролик YouTube, например https://www.youtube.com/watch?v=dQw4w9WgXcQ. Ссылки только на плейлист и другие сайты пока не поддерживаются.`);
     if (failure.code === "missing-downloader") return text("Cannot open YouTube: yt-dlp was not found. Add a current yt-dlp executable to PATH, or update IINA in Applications, then open the link again.", "Не удалось открыть YouTube: yt-dlp не найден. Добавьте актуальный исполняемый файл yt-dlp в PATH или обновите IINA в папке «Программы», затем откройте ссылку снова.");
+    if (failure.code === "youtube" && android) return text(`Cannot open YouTube${name}. Check the connection and that the video plays without signing in, then open the link again. If it still fails, update the Android app.`, `Не удалось открыть YouTube${name}. Проверьте соединение и доступность ролика без входа в аккаунт, затем откройте ссылку снова. Если ошибка остаётся, обновите Android-приложение.`);
     if (failure.code === "youtube") return text(`Cannot open YouTube${name}. Check the connection and that the video plays without signing in. Update yt-dlp (or IINA if using its copy) and ensure a supported JavaScript runtime, for example Deno, is installed, then open the link again.`, `Не удалось открыть YouTube${name}. Проверьте соединение и доступность ролика без входа в аккаунт. Обновите yt-dlp (или IINA, если используется его копия) и проверьте наличие поддерживаемой среды JavaScript, например Deno, затем откройте ссылку снова.`);
     if (failure.code === "youtube-live") return text("Cannot open this live or upcoming stream yet. Open a recorded YouTube video instead.", "Прямой эфир или запланированная трансляция пока не поддерживается. Откройте записанный ролик YouTube.");
     if (failure.code === "format") return text(`Cannot open${name}. Choose a supported audio or video file, for example book.mp3 or chapter.m4b.`, `Не удалось открыть${name}. Выберите аудио или видео поддерживаемого формата, например book.mp3 или chapter.m4b.`);
@@ -228,17 +230,17 @@
 <section class="player" class:dragging aria-label={text("Player", "Плеер")}>
   <div class="source-row">
     <button type="button" class="action" disabled={!ready} onclick={openFiles} onpointerup={releasePointerFocus}>{text("Open files", "Открыть файлы")}</button>
-    {#if nativeDesktop}
+    {#if nativeDesktop || android}
       <form class="link-form" onsubmit={openLink}>
         <input type="url" aria-label={text("YouTube link", "Ссылка YouTube")} bind:value={link} required maxlength="2048" placeholder={text("YouTube link", "Ссылка YouTube")} />
-        <button type="submit" class="action" disabled={!ready || playback.loading || openingLink} onpointerup={releasePointerFocus}>{text("Open", "Открыть")}</button>
+        <button type="submit" class="action" disabled={!ready || !youtubeAvailable || playback.loading || openingLink} onpointerup={releasePointerFocus}>{text("Open", "Открыть")}</button>
       </form>
     {:else if !android}<span class="hint intake-hint">{text("or drop files here", "или перетащите файлы сюда")}</span>{/if}
   </div>
   <input bind:this={fileInput} type="file" accept={mediaAccept} multiple hidden onchange={() => { addFiles(Array.from(fileInput.files ?? [], file => ({ file }))); fileInput.value = ""; }} />
 
   <div class="track-heading">
-    <h2 class:empty={!current} title={current?.name}>{current?.name ?? (nativeDesktop ? text("Open a file or a YouTube link", "Откройте файл или ссылку YouTube") : text("Open a file to start listening", "Откройте файл для воспроизведения"))}</h2>
+    <h2 class:empty={!current} title={current?.name}>{current?.name ?? (nativeDesktop || android ? text("Open a file or a YouTube link", "Откройте файл или ссылку YouTube") : text("Open a file to start listening", "Откройте файл для воспроизведения"))}</h2>
     {#if playback.backend}<span class="backend">{playback.backend === "iina" ? "IINA" : "mpv"}</span>{/if}
   </div>
   {#if !nativePlayer}<video bind:this={mediaElement} class:audio-only={current?.kind !== "video"} playsinline preload="metadata"><track kind="captions" /></video>{/if}
@@ -265,6 +267,7 @@
   </div>
   {#if dragging}<p class="hint" role="status">{text("Drop files here", "Отпустите файлы здесь")}</p>{/if}
   {#if playback.loading || openingLink}<p class="hint" role="status">{text("Opening media…", "Открытие медиа…")}</p>{/if}
+  {#if android && ready && !youtubeAvailable}<p class="hint">{text("Install a new Android APK to open YouTube links. Reloading the interface does not update the native player.", "Для открытия ссылок YouTube установите новый Android APK. Перезагрузка интерфейса не обновляет нативный плеер.")}</p>{/if}
   {#if playback.videoLoading}<p class="hint" role="status">{text("Opening video; audio keeps playing.", "Подключение видео; звук продолжает идти.")}</p>{/if}
   {#if android && current?.kind === "video"}<p class="hint">{text("Audio only on Android for now.", "На Android пока воспроизводится только звук.")}</p>{/if}
   {#if current?.temporary}<p class="hint">{text("Temporary file access. Use Open files to request lasting access.", "Временный доступ к файлу. Выберите его через «Открыть файлы», чтобы сохранить доступ.")}</p>{/if}
@@ -299,10 +302,10 @@
           <ul>{#each playback.recent as item (item.id)}<li><button type="button" class="file" title={item.name} disabled={!ready} onclick={() => command({ type: "recent", id: item.id })} onpointerup={releasePointerFocus}>{item.name}{item.temporary ? " · !" : ""}</button></li>{/each}</ul>
         </section>
       {/if}
-      {#if nativeDesktop && playback.recentLinks?.length}
+      {#if (nativeDesktop || android) && playback.recentLinks?.length}
         <section class="record-group" aria-label={text("Saved links", "Сохранённые ссылки")}>
           <h3>{text("Saved links", "Сохранённые ссылки")} <span>{playback.recentLinks.length}</span></h3>
-          <ul>{#each playback.recentLinks as item (item.id)}<li><button type="button" class="file" title={item.name} disabled={!ready || playback.loading} onclick={() => command({ type: "select", id: item.id })} onpointerup={releasePointerFocus}>{item.name}</button></li>{/each}</ul>
+          <ul>{#each playback.recentLinks as item (item.id)}<li><button type="button" class="file" title={item.name} disabled={!ready || playback.loading} onclick={() => command({ type: android ? "recent" : "select", id: item.id })} onpointerup={releasePointerFocus}>{item.name}</button></li>{/each}</ul>
         </section>
       {/if}
     </div>

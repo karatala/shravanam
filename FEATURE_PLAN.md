@@ -64,7 +64,7 @@ The desktop implementation uses a separate mpv process controlled by Bun through
 - ✅ Store desktop progress and settings through the native shared-library adapter, outside the WebView. Keep playback.json and local bindings for device access and migration. Development control mode uses a separate Shravanam-dev profile; standalone PWA progress uses IndexedDB.
 - ✅ Store manual desktop downloads in private profile-owned directories with a checked download index. Keep media out of the shell cache. Cross-device media backup and automatic cache policies remain pending.
 - ✅ Define shared select, play/pause, seek, speed, and interval commands and playback state in `src/playback.ts`. Android maps the existing commands to its service. Desktop also has host-owned sleep commands and tray controls; global system controls remain pending.
-- ✅ Start with local files: MP3, M4A/M4B, AAC, FLAC, OGG/Opus, WAV, MP4/M4V, WebM, MKV, MOV. Browser codec support varies. Pasted individual YouTube links now have a separate desktop resolver. Generic URLs, other sites, and Android/PWA links remain pending.
+- ✅ Start with local files: MP3, M4A/M4B, AAC, FLAC, OGG/Opus, WAV, MP4/M4V, WebM, MKV, MOV. Browser codec support varies. Recorded YouTube links have desktop and Android audio resolvers. Generic URLs, other sites, and PWA links remain pending.
 
 ### [ ] File drag-and-drop and associations
 
@@ -193,6 +193,8 @@ Stage verification: compare playback with the interface open and disposed; confi
 - [ ] Automatic downloading. Define triggers, queue limits, network conditions, storage limits, and retry behavior before enabling it.
 - ✅ Represent downloading, finishing, interrupted, ready, and failed states in the desktop interface. An incomplete file cannot open as offline-ready. A waiting queue remains pending with automatic downloading.
 - ✅ Add manual paste/open of individual recorded YouTube links on desktop, including video links with playlist parameters and explicit timestamps. Keep 20 canonical source links separate from local recents; store no signed stream URLs.
+- ✅ Add Android paste/open for recorded YouTube audio through packaged youtubedl-android 0.18.1 and the existing Media3 service. Keep source resolution native, cancellation/generation checks, fresh stream retries, separate 20-link history, saved positions, and a capability hint for older APKs. Video, live streams, link Share/Open With, browsing, and downloads remain pending.
+- [ ] Verify Android YouTube on a device: public/invalid/unavailable links, explicit timestamps, network loss and fresh Play retry, source changes during extraction, pause/stop/media keys while resolving, progress/restart, local-file switching, UI reload/background, and decoder behavior. Confirm that signed addresses/headers are absent from saved data and snapshots.
 - [ ] Add OS Share/Open with input for YouTube links and Android/PWA adapters. Separate receipt of the link from successful media extraction and playback.
 - ✅ Bind desktop downloaded files to their YouTube logical media record and shared progress, retain the title, and restore the local copy paused without fetching streams. Notes, chapters, and playlists retain that logical identity. Cross-device local-file relinking remains explicit.
 - [ ] Search the saved archive and watched/listened history.
@@ -217,7 +219,7 @@ Stage verification: share a supported link, choose an available format, download
 - ✅ Check real desktop audio download with installed yt-dlp: Me at the zoo produced a checked 309,288-byte local file, opened through IINA, and restored paused at four seconds after host restart. Playback advanced after closing the source browser. Fix reopening after the last source window closes by retaining an empty hidden window while disposing its WebViews/context; native reopen checks and the lifecycle regression cover this case.
 - ✅ Keep video-download failures actionable when ffmpeg is absent. The interface reports the dependency and offers retry. The user deferred installation; real merged-video download verification remains pending.
 - [ ] Check document-start/idle scripts on real pages, YouTube same-page navigation, merged-video downloads after ffmpeg installation, and online/local position continuity. Repeat source browsing, child-view layout/focus, script timing, download recovery, and close/reopen behavior on the other desktop targets.
-- [ ] Implement Android source browsing, user-script handling, and native extraction/downloading. Standalone PWA needs a selected supported acquisition adapter; yt-dlp does not run directly in its current browser code. Do not describe either target as implemented.
+- [ ] Implement Android source browsing, user-script handling, and offline downloading beyond the recorded YouTube audio resolver. Standalone PWA needs a selected supported acquisition adapter; yt-dlp does not run directly in its current browser code. Do not describe these remaining capabilities as implemented.
 
 Verification: find a video through the embedded browser, download the selected format, disconnect, restart Shravanam, and resume the local copy at its saved position. Check browsing with ad blocking enabled and disabled. Repeat supported behavior on desktop and Android before claiming both targets work.
 
@@ -309,5 +311,5 @@ These references identify specific platform constraints; they do not select a co
 - ✅ Start with local-file playback, position saving, and configurable time jumps.
 - ✅ Add desktop WebView disposal and tray controls after the library, notes/subtitles, manual sync, and timer source. Keep actual native background checks separate from unit coverage.
 - ✅ Resolve the desktop adaptive timer sequence and configurable spoken-time behavior with the user. The approved defaults and remaining hardware/platform checks are recorded above.
-- ✅ Select installed yt-dlp for recorded desktop YouTube playback and explicit downloads. Android/PWA acquisition and arbitrary-site support remain pending.
+- ✅ Select installed yt-dlp for desktop YouTube and downloads, and packaged youtubedl-android for recorded Android YouTube audio. Android downloads, PWA acquisition, and arbitrary-site support remain pending.
 - [ ] Finish desktop target checks and Android device playback checks. Verify real WebDAV synchronization and preserve the remaining adapter, history, transcription, and hardware-control work above.

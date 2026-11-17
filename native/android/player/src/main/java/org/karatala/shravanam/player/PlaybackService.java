@@ -17,6 +17,9 @@ import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
+import androidx.media3.datasource.DefaultDataSource;
+import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.session.CommandButton;
 import androidx.media3.session.MediaSession;
 import androidx.media3.session.MediaSessionService;
@@ -34,17 +37,26 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicLong;
 import org.json.JSONObject;
 import org.json.JSONArray;
 
 @OptIn(markerClass = UnstableApi.class)
 public final class PlaybackService extends MediaSessionService {
+    private static final AtomicLong youtubeJobs = new AtomicLong();
     // Accessed only on the main thread. The controller binding owns the UI connection.
     static PlaybackService instance;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService fileWorker = Executors.newSingleThreadExecutor();
+    private final ExecutorService youtubeWorker = Executors.newSingleThreadExecutor();
     private final LinkedHashMap<String, MediaFile> files = new LinkedHashMap<>();
     private final ArrayList<MediaFile> recent = new ArrayList<>();
+    private final ArrayList<MediaFile> recentLinks = new ArrayList<>();
+    private Future<?> youtubeTask;
+    private Runnable youtubeTimeout;
+    private boolean resolvingYouTube;
+    private boolean youtubeAutoplay;
     private ExoPlayer player;
     private SessionPlayer controls;
     private MediaSession session;
@@ -75,11 +87,19 @@ public final class PlaybackService extends MediaSessionService {
             JSONArray saved = new JSONArray(this.settings.getString("recent", "[]"));
             for (int idx = 0; idx < Math.min(20, saved.length()); idx++) {
                 MediaFile file = MediaFile.fromStored(saved.getJSONObject(idx));
+                if (file.youtube()) continue;
                 boolean duplicate = false;
                 for (MediaFile existing : this.recent) if (existing.uri.equals(file.uri)) duplicate = true;
                 if (!duplicate) this.recent.add(file);
             }
         } catch (Exception failure) { Log.e("Shravanam", "Cannot read recent files", failure); this.error = PlaybackService.failure("storage", null); }
+        try {
+            JSONArray saved = new JSONArray(this.settings.getString("recent-youtube", "[]"));
+            for (int idx = 0; idx < Math.min(20, saved.length()); idx++) {
+                MediaFile file = MediaFile.fromStored(saved.getJSONObject(idx));
+                if (file.youtube() && this.recentLinks.stream().noneMatch(existing -> existing.id.equals(file.id))) this.recentLinks.add(file);
+            }
+        } catch (Exception failure) { Log.e("Shravanam", "Cannot read recent YouTube links"); this.error = PlaybackService.failure("storage", null); }
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(this.getResources().openRawResource(R.raw.shravanam_media_types), StandardCharsets.UTF_8))) {
             StringBuilder json = new StringBuilder();
             String line;
@@ -110,8 +130,10 @@ public final class PlaybackService extends MediaSessionService {
         this.updateButtons();
         this.player.addListener(new Player.Listener() {
             @Override public void onPlayerError(PlaybackException failure) {
-                Log.e("Shravanam", "Android playback failed", failure);
+                if (PlaybackService.this.current != null && PlaybackService.this.current.youtube()) Log.e("Shravanam", "YouTube playback failed: " + failure.errorCode);
+                else Log.e("Shravanam", "Android playback failed", failure);
                 PlaybackService.this.error = PlaybackService.failure(failure.errorCode == PlaybackException.ERROR_CODE_IO_NO_PERMISSION ? "access" : "play", PlaybackService.this.current == null ? null : PlaybackService.this.current.name);
+                if (PlaybackService.this.current != null && PlaybackService.this.current.youtube()) PlaybackService.this.settings.edit().putLong("position." + PlaybackService.this.current.id, Math.max(0, PlaybackService.this.player.getCurrentPosition())).apply();
             }
             @Override public void onEvents(Player player, Player.Events events) {
                 if (events.containsAny(Player.EVENT_POSITION_DISCONTINUITY, Player.EVENT_PLAY_WHEN_READY_CHANGED, Player.EVENT_PLAYBACK_STATE_CHANGED, Player.EVENT_PLAYBACK_PARAMETERS_CHANGED)) PlaybackService.this.saveProgress();
@@ -119,7 +141,13 @@ public final class PlaybackService extends MediaSessionService {
         });
         PlaybackService.instance = this;
         this.handler.postDelayed(this.checkpoint, 5000);
-        if (!this.recent.isEmpty()) this.openRecent(this.recent.get(0).id, true);
+        String lastId = this.settings.getString("last-media", "");
+        MediaFile last = null;
+        for (MediaFile file : this.recent) if (file.id.equals(lastId)) last = file;
+        for (MediaFile file : this.recentLinks) if (file.id.equals(lastId)) last = file;
+        if (last != null) this.openRecent(last.id, true);
+        else if (!this.recent.isEmpty()) this.openRecent(this.recent.get(0).id, true);
+        else if (!this.recentLinks.isEmpty()) this.openRecent(this.recentLinks.get(0).id, true);
     }
 
     @Override public MediaSession onGetSession(MediaSession.ControllerInfo controller) { return this.session; }
@@ -143,8 +171,14 @@ public final class PlaybackService extends MediaSessionService {
         }
 
         @Override protected ListenableFuture<?> handleSetPlayWhenReady(boolean ready) {
+            if (PlaybackService.this.resolvingYouTube) PlaybackService.this.youtubeAutoplay = ready;
             if (PlaybackService.this.current == null) return Futures.immediateVoidFuture();
             if (ready) {
+                if (PlaybackService.this.resolvingYouTube && PlaybackService.this.current.youtube() && (PlaybackService.this.player.getPlayerError() != null || PlaybackService.this.player.getPlaybackState() == STATE_IDLE)) return Futures.immediateVoidFuture();
+                if (PlaybackService.this.current.youtube() && !PlaybackService.this.resolvingYouTube && (PlaybackService.this.player.getPlayerError() != null || PlaybackService.this.player.getPlaybackState() == STATE_IDLE)) {
+                    PlaybackService.this.openYouTube(PlaybackService.this.current.uri.toString(), true, Math.max(0, PlaybackService.this.player.getCurrentPosition()));
+                    return Futures.immediateVoidFuture();
+                }
                 PlaybackService.this.error = null;
                 if (PlaybackService.this.player.getPlaybackState() == STATE_ENDED) PlaybackService.this.player.seekTo(0);
                 if (PlaybackService.this.player.getPlaybackState() == STATE_IDLE) PlaybackService.this.player.prepare();
@@ -152,7 +186,21 @@ public final class PlaybackService extends MediaSessionService {
             return super.handleSetPlayWhenReady(ready);
         }
 
-        @Override protected ListenableFuture<?> handleStop() { PlaybackService.this.saveProgress(); return super.handleStop(); }
+        @Override protected ListenableFuture<?> handlePrepare() {
+            if (PlaybackService.this.current != null && PlaybackService.this.current.youtube() && (PlaybackService.this.player.getPlayerError() != null || PlaybackService.this.player.getPlaybackState() == STATE_IDLE)) {
+                if (!PlaybackService.this.resolvingYouTube) PlaybackService.this.openYouTube(PlaybackService.this.current.uri.toString(), PlaybackService.this.player.getPlayWhenReady(), Math.max(0, PlaybackService.this.player.getCurrentPosition()));
+                return Futures.immediateVoidFuture();
+            }
+            return super.handlePrepare();
+        }
+
+        @Override protected ListenableFuture<?> handleStop() {
+            PlaybackService.this.saveProgress();
+            ++PlaybackService.this.selectionVersion;
+            PlaybackService.this.cancelYouTube();
+            PlaybackService.this.openingFile = false;
+            return super.handleStop();
+        }
         void refresh() { this.invalidateState(); }
     }
 
@@ -179,6 +227,7 @@ public final class PlaybackService extends MediaSessionService {
     }
 
     void openUris(List<Uri> uris, Runnable finished) {
+        this.cancelYouTube();
         long version = ++this.selectionVersion;
         this.openingFile = true;
         this.fileWorker.execute(() -> {
@@ -209,26 +258,31 @@ public final class PlaybackService extends MediaSessionService {
     }
 
     private void remember(List<MediaFile> entries) {
+        boolean youtube = entries.get(0).youtube();
+        ArrayList<MediaFile> recents = youtube ? this.recentLinks : this.recent;
         ArrayList<MediaFile> ordered = new ArrayList<>();
         ArrayList<MediaFile> candidates = new ArrayList<>(entries);
-        candidates.addAll(this.recent);
+        candidates.addAll(recents);
         for (MediaFile file : candidates) {
             boolean duplicate = false;
             for (MediaFile existing : ordered) if (existing.uri.equals(file.uri)) duplicate = true;
             if (!duplicate) ordered.add(file);
             if (ordered.size() == 20) break;
         }
-        this.recent.clear();
-        this.recent.addAll(ordered);
+        recents.clear();
+        recents.addAll(ordered);
         JSONArray saved = new JSONArray();
-        for (MediaFile file : this.recent) saved.put(file.stored());
-        this.settings.edit().putString("recent", saved.toString()).apply();
+        for (MediaFile file : recents) saved.put(file.stored());
+        this.settings.edit().putString(youtube ? "recent-youtube" : "recent", saved.toString()).apply();
     }
 
     private void openRecent(String id, boolean automatic) {
         MediaFile selected = null;
         for (MediaFile file : this.recent) if (file.id.equals(id)) { selected = file; break; }
+        for (MediaFile file : this.recentLinks) if (file.id.equals(id)) { selected = file; break; }
         if (selected == null) return;
+        if (selected.youtube()) { this.openYouTube(selected.uri.toString(), !automatic, null); return; }
+        this.cancelYouTube();
         MediaFile saved = selected;
         long version = ++this.selectionVersion;
         this.openingFile = true;
@@ -257,6 +311,8 @@ public final class PlaybackService extends MediaSessionService {
     private void select(String id, boolean autoplay) {
         MediaFile file = this.files.get(id);
         if (file == null) return;
+        if (file.youtube()) { this.openYouTube(file.uri.toString(), autoplay, null); return; }
+        this.cancelYouTube();
         this.saveProgress();
         this.error = null;
         long position = Math.max(0, this.settings.getLong("position." + id, 0));
@@ -266,17 +322,89 @@ public final class PlaybackService extends MediaSessionService {
             this.player.pause();
             this.current = file;
             this.player.setMediaItem(item, position);
+            this.settings.edit().putString("last-media", file.id).apply();
             this.player.prepare();
             if (autoplay) this.player.play();
         } finally { this.changingMedia = false; }
         this.remember(java.util.Collections.singletonList(file));
     }
 
+    private void cancelYouTube() {
+        if (this.youtubeTask != null) this.youtubeTask.cancel(true);
+        this.youtubeTask = null;
+        if (this.youtubeTimeout != null) this.handler.removeCallbacks(this.youtubeTimeout);
+        this.youtubeTimeout = null;
+        this.resolvingYouTube = false;
+    }
+
+    private void openYouTube(String input, boolean autoplay, Long resume) {
+        YouTubeSource source;
+        try { source = YouTubeSource.parse(input); }
+        catch (IllegalArgumentException failure) { this.error = PlaybackService.failure("youtube-link", input == null ? "" : input.substring(0, Math.min(200, input.length()))); return; }
+        this.cancelYouTube();
+        long version = ++this.selectionVersion;
+        this.openingFile = false;
+        this.resolvingYouTube = true;
+        this.youtubeAutoplay = autoplay;
+        this.error = null;
+        long position = resume != null ? resume : source.start != null ? source.start : Math.max(0, this.settings.getLong("position." + source.id, 0));
+        boolean followCurrentClock = resume == null && source.start == null && this.current != null && source.id.equals(this.current.id) && this.player.getPlayerError() == null;
+        String processId = "shravanam-youtube-" + youtubeJobs.incrementAndGet();
+        this.youtubeTask = this.youtubeWorker.submit(() -> {
+            try {
+                YouTubeResolver.Stream stream = YouTubeResolver.resolve(this, source, processId);
+                this.handler.post(() -> {
+                    if (this.destroyed || version != this.selectionVersion) return;
+                    boolean play = this.youtubeAutoplay;
+                    this.cancelYouTube();
+                    MediaFile file = MediaFile.youtube(source, stream.title);
+                    try {
+                        this.saveProgress();
+                        this.changingMedia = true;
+                        this.player.pause();
+                        this.current = file;
+                        this.files.put(file.id, file);
+                        DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory().setDefaultRequestProperties(stream.headers);
+                        DefaultMediaSourceFactory factory = new DefaultMediaSourceFactory(this).setDataSourceFactory(new DefaultDataSource.Factory(this, http));
+                        MediaItem item = new MediaItem.Builder().setMediaId(file.id).setUri(stream.url).setMediaMetadata(new MediaMetadata.Builder().setTitle(file.name).build()).build();
+                        this.player.setMediaSource(factory.createMediaSource(item), followCurrentClock ? Math.max(0, this.player.getCurrentPosition()) : position);
+                        this.player.prepare();
+                        this.settings.edit().putString("last-media", file.id).apply();
+                        this.remember(java.util.Collections.singletonList(file));
+                        if (play) this.player.play();
+                    } catch (RuntimeException failure) { this.error = PlaybackService.failure("youtube", source.url); }
+                    finally { this.changingMedia = false; }
+                });
+            } catch (Exception failure) {
+                this.handler.post(() -> {
+                    if (this.destroyed || version != this.selectionVersion) return;
+                    this.cancelYouTube();
+                    Log.e("Shravanam", "Cannot resolve YouTube audio");
+                    this.error = PlaybackService.failure(failure instanceof YouTubeResolver.UnsupportedLive ? "youtube-live" : "youtube", source.url);
+                });
+            }
+        });
+        this.youtubeTimeout = () -> {
+            if (this.destroyed || version != this.selectionVersion || !this.resolvingYouTube) return;
+            ++this.selectionVersion;
+            this.cancelYouTube();
+            this.error = PlaybackService.failure("youtube", source.url);
+        };
+        this.handler.postDelayed(this.youtubeTimeout, 60000);
+    }
+
     void command(JSObject command) {
         if (command == null) throw new IllegalArgumentException("Missing playback command");
         String type = command.getString("type", "");
         switch (type) {
-            case "select": ++this.selectionVersion; this.openingFile = false; this.select(command.getString("id", ""), true); break;
+            case "open-youtube": this.openYouTube(command.getString("url", ""), true, null); break;
+            case "select":
+                String id = command.getString("id", "");
+                if (!this.files.containsKey(id)) break;
+                ++this.selectionVersion;
+                this.openingFile = false;
+                this.select(id, true);
+                break;
             case "recent": this.openRecent(command.getString("id", ""), false); break;
             case "toggle":
                 if (this.player.getPlayWhenReady() && this.player.getPlaybackState() != Player.STATE_ENDED && this.player.getPlayerError() == null) this.controls.pause();
@@ -310,11 +438,13 @@ public final class PlaybackService extends MediaSessionService {
         for (MediaFile file : this.files.values()) items.put(file.snapshot());
         JSArray recent = new JSArray();
         for (MediaFile file : this.recent) recent.put(file.snapshot());
+        JSArray recentLinks = new JSArray();
+        for (MediaFile file : this.recentLinks) recentLinks.put(file.snapshot());
         long duration = this.player.getDuration();
-        return new JSObject().put("items", items).put("recent", recent).put("currentId", this.current == null ? JSONObject.NULL : this.current.id)
+        return new JSObject().put("items", items).put("recent", recent).put("recentLinks", recentLinks).put("youtubeSupported", true).put("currentId", this.current == null ? JSONObject.NULL : this.current.id)
             .put("time", Math.max(0, this.player.getCurrentPosition()) / 1000.0).put("duration", duration > 0 ? duration / 1000.0 : 0)
             .put("paused", !this.player.getPlayWhenReady() || this.player.getPlaybackState() == Player.STATE_ENDED || this.player.getPlayerError() != null)
-            .put("loading", this.openingFile || this.player.getPlaybackState() == Player.STATE_BUFFERING).put("speed", this.player.getPlaybackParameters().speed)
+            .put("loading", this.openingFile || this.resolvingYouTube || this.player.getPlaybackState() == Player.STATE_BUFFERING).put("speed", this.player.getPlaybackParameters().speed)
             .put("backward", this.backward).put("forward", this.forward).put("error", this.error == null ? JSONObject.NULL : this.error);
     }
 
@@ -330,10 +460,13 @@ public final class PlaybackService extends MediaSessionService {
     @Override
     public void onDestroy() {
         this.destroyed = true;
+        ++this.selectionVersion;
+        this.cancelYouTube();
         PlaybackService.instance = null;
         this.saveProgress();
         this.handler.removeCallbacksAndMessages(null);
         this.fileWorker.shutdownNow();
+        this.youtubeWorker.shutdownNow();
         this.controls.release();
         this.session.release();
         super.onDestroy();

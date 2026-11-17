@@ -14,6 +14,7 @@ export async function applyAndroidPlayer() {
   const entries = [
     ["android/settings.gradle", "// Shravanam native player", "include ':shravanam-player'\nproject(':shravanam-player').projectDir = new File('./shravanam-player/')"],
     ["android/app/build.gradle", "// Shravanam native player", "dependencies { implementation project(':shravanam-player') }"],
+    ["android/app/build.gradle", "// Shravanam extraction runtime", "android { packaging { jniLibs { useLegacyPackaging = true } } }"],
   ];
   for (const [filename, marker, content] of entries) {
     const source = await readFile(filename, "utf8");

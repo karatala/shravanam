@@ -73,11 +73,20 @@ final class MediaFile {
 
     JSObject stored() { return this.snapshot().put("uri", this.uri.toString()); }
 
+    boolean youtube() { return "https".equals(this.uri.getScheme()); }
+
+    static MediaFile youtube(YouTubeSource source, String title) { return new MediaFile(source.id, Uri.parse(source.url), title, "video", false); }
+
     static MediaFile fromStored(JSONObject value) throws Exception {
         String id = value.getString("id");
         Uri uri = Uri.parse(value.getString("uri"));
         String name = value.getString("name");
         String kind = value.getString("kind");
+        if ("https".equals(uri.getScheme())) {
+            YouTubeSource source = YouTubeSource.parse(uri.toString());
+            if (!id.equals(source.id) || !uri.toString().equals(source.url) || name.isEmpty()) throw new IOException("Invalid recent YouTube source");
+            return youtube(source, name);
+        }
         if (!id.matches("[a-f0-9]{64}") || !"content".equals(uri.getScheme()) || name.isEmpty() || !("audio".equals(kind) || "video".equals(kind))) throw new IOException("Invalid recent media");
         return new MediaFile(id, uri, name, kind, value.getBoolean("temporary"));
     }

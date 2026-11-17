@@ -2,12 +2,13 @@
 
 ## Purpose
 
-- Own the versioned Android library and app overlay for native local audio playback behind Capacitor.
+- Own the versioned Android library and app overlay for local files and YouTube audio behind Capacitor.
 
 ## Ownership
 
 - `player/` is an Android library with Media3, the playback service, and the Capacitor plugin.
 - `PlaybackService.java` owns playback, persistence, notification preferences, and system time-jump commands. `MediaFile.java` validates granted files and reads provider metadata. `ShravanamPlayerPlugin.java` owns the controller binding, picker, and incoming-intent queue.
+- `YouTubeSource.java` validates individual HTTPS YouTube links and explicit timestamps. `YouTubeResolver.java` uses the pinned youtubedl-android 0.18.1 runtime to resolve an audio stream and bounded headers. Media3 remains the only playback engine.
 - `MainActivity.java` registers the local plugin and selects the debug interface origin before Capacitor creates its bridge.
 - `DevelopmentServer.java` owns the debug-only native Server button, settings dialog, and device-local server preference. `DevelopmentServerUrl.java` validates local HTTP origins on port 3001 without DNS lookup.
 - `scripts/prepare-android.js` copies this source into the ignored Android project and generates accepted media types from `src/playback.ts`.
@@ -17,7 +18,11 @@
 - The service owns one ExoPlayer and all playback state. The WebView only selects files, sends validated commands, and reads snapshots. Releasing the interface controller must not release active playback.
 - The plugin and service run in the same application process. Keep service access on the main thread; query file providers on the service's serial worker.
 - Accept granted content URIs from the system document picker, Open With, and media sharing. Do not expose arbitrary URI or path opening to JavaScript. Attempt persistent read access only when the sender grants it; report temporary access in item metadata.
-- No broad storage permission, media copying, URL extraction, or automatic downloads. Android plays audio tracks only in this stage; disable video and text tracks.
+- No broad storage permission, media copying, arbitrary URL opening, or automatic downloads. Android plays audio tracks only in this stage; disable video and text tracks. Pasted recorded YouTube links use native extraction with no media download or disk cache. Source browsing, Share/Open With for links, live streams, and video display remain separate work.
+- Keep 20 canonical YouTube links separately from local recents, with the desktop-compatible YouTube media ID and saved position. Do not put signed stream URLs or headers in preferences, snapshots, archives, or application error logs. Restore the last source paused; obtain a new stream on reopening and on Play after a stream failure.
+- Run extraction on the service's worker, not in the WebView. Bound it to 60 seconds, cancel old work when selection changes or playback stops, and ignore stale completions. Pause/media-key actions during resolution set the requested playback state. A UI reload must not start extraction again. Use stream-specific Media3 HTTP headers, leaving local-file playback unchanged.
+- The packaged extractor includes its runtime and QuickJS; do not fetch extractor updates or remote helper components during playback. App packaging must use extracted native libraries and `useLegacyPackaging = true`. This native dependency needs a new APK; `youtubeSupported` in snapshots keeps a newer LAN interface from sending unsupported commands to an older APK.
+- Disable yt-dlp format checks because they create temporary media files. Check the selected stream and at most five alternatives with a one-byte HTTP range read into memory, no HTTP cache or redirects, and bounded connect/read timeouts. Prefer separate audio before a combined stream.
 - Save progress, settings, and 20 recent file descriptors in private SharedPreferences. The active file list lives with the service. Revalidate the most recent URI on the serial worker at service startup, then prepare it paused at its saved position. Explicit selections invalidate pending automatic restoration. Keep inaccessible recent entries visible and ask for reselection; do not start sound on launch alone.
 - Publish play/pause and time jumps through Media3. Map received previous/next commands to the configured time jumps. Button visibility and headset behavior still require device checks. Do not intercept volume buttons.
 - Let Media3 own foreground notifications and service lifetime. Enable audio-focus handling, pause on disconnected audio outputs, and use a playback wake lock. Do not release the service when Capacitor pauses or destroys its UI.
@@ -32,6 +37,6 @@
 ## Verification
 
 - Track Android build and device checks separately in `FEATURE_PLAN.md`; source inspection does not establish runtime support.
-- `:shravanam-player:testDebugUnitTest` checks native development URL validation before the CI debug APK build. Device checks must cover changing addresses, restart, unreachable/broken server recovery, safe-area placement, and playback continuity.
+- `:shravanam-player:testDebugUnitTest` checks native development URLs and YouTube source/stream validation before the CI debug APK build. Device checks must cover source changes, saved position, stale/cancelled extraction, expired streams, UI reload/background, native server recovery, and playback continuity.
 
 ## Child DOX Index
