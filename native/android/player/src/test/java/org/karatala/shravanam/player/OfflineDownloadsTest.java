@@ -52,12 +52,13 @@ public final class OfflineDownloadsTest {
         assertEquals("ready", restarted.start(URL, true, 720, null).status);
         assertFalse(restarted.running(audio.id));
         assertFalse(restarted.snapshot().toString().contains(root.getPath()));
-        assertFalse(Files.readString(new File(root, "index.json").toPath()).contains(root.getPath()));
+        String index = new String(Files.readAllBytes(new File(root, "index.json").toPath()), StandardCharsets.UTF_8);
+        assertFalse(index.contains(root.getPath()));
         JSONObject visible = restarted.snapshot().getJSONArray("items").getJSONObject(0);
         assertFalse(visible.has("filename"));
         assertFalse(visible.has("uri"));
         assertEquals(YouTubeSource.parse(URL).url, visible.getString("url"));
-        assertEquals("media.m4a", new JSONObject(Files.readString(new File(root, "index.json").toPath())).getJSONArray("items").getJSONObject(0).getString("filename"));
+        assertEquals("media.m4a", new JSONObject(index).getJSONArray("items").getJSONObject(0).getString("filename"));
     }
 
     @Test public void cancellationWinsAgainstLateCompletionAndRetryKeepsPartialBytes() throws Exception {
@@ -72,7 +73,7 @@ public final class OfflineDownloadsTest {
         assertFalse(store.running(job.id));
         OfflineDownloads.Job retry = store.start("", true, 720, job.id);
         assertEquals(job.id, retry.id);
-        assertEquals("partial", Files.readString(partial.toPath()));
+        assertEquals("partial", new String(Files.readAllBytes(partial.toPath()), StandardCharsets.UTF_8));
         this.complete(store, retry);
         assertNotNull(store.exact(job.id));
     }
@@ -100,7 +101,7 @@ public final class OfflineDownloadsTest {
         assertNull(store.exact(job.id));
         assertEquals("failed", store.snapshot().getJSONArray("items").getJSONObject(0).getString("status"));
         assertThrows(IOException.class, () -> store.directory("../outside"));
-        Files.writeString(new File(root, "index.json").toPath(), "broken");
+        Files.write(new File(root, "index.json").toPath(), "broken".getBytes(StandardCharsets.UTF_8));
         assertThrows(IOException.class, () -> new OfflineDownloads(root));
         assertTrue(media.isFile());
     }
