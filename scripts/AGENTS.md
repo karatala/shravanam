@@ -16,6 +16,7 @@
 - `build-desktop.js` embeds the current asset list and the platform WebviewJS addon. On macOS it compiles the document launcher and packages the Bun host as `ShravanamHost`.
 - `desktop-associations.js` generates macOS media document declarations and optional Windows/Linux Open With registration output. Packaging does not execute registration or change defaults.
 - `prepare-mobile.js` creates and syncs the requested Capacitor target.
+- `android-gradle.js` is the Linux Android CI entry point after preparation. Stream wrapper output, retain bounded tails for classification, use two workers, and retry only Maven Central HTTP 429 during configuration before tasks start. Three attempts with 60/120-second pauses preserve cached downloads and the real failure exit code. Code/test errors and other failures stop immediately.
 - `prepare-mobile.js android --dev` accepts `--url http://192.168.1.10:3001` or `SHRAVANAM_ANDROID_DEV_URL`. Pass the selected URL only to Capacitor child commands. Normal Android/iOS preparation removes this environment value before sync. Debug APKs can select a server or bundled files at runtime through their native Server control; that device-local selection takes priority over the build-time URL. Standard preparation does not clear device preferences. `capacitor.config.ts` contains no saved development address.
 - `prepare-android.js` applies the versioned Android player library and MainActivity after sync, including its debug manifest, native server settings, private video/browser Activities, and video TextureView layout. It generates media-type metadata from `src/playback.ts` and adds each Gradle link once. All Android debug APKs include the runtime server selector without a build-time address.
 - Android preparation also sets app-level `jniLibs.useLegacyPackaging = true` for the packaged YouTube extractor runtime and offline FFmpeg dependency. Keep that separate marker idempotent. The library manifest sets `extractNativeLibs`. Streaming needs no FFmpeg; explicit offline audio extraction/video merging uses the packaged library. No external-storage permission or installed executable is needed.
@@ -36,6 +37,7 @@
 
 ## Verification
 
+- `bun test tests/android-gradle.test.js` checks retry/backoff and immediate failure with injected process results, plus workflow cache/order and paused targets. It does not run a native build or access Maven.
 - `bun test tests/android-dev.test.js tests/android-prepare.test.js` checks LAN serving, desktop API isolation, successful/failed rebuild revisions, URL validation, remote/bundled preparation environments, private video/browser Activity/layout copying, localized notification resources, the headset-resumption receiver, and native system-control/resumption test copying. These checks use temporary fixtures and do not build the app or prepare native targets. Phone checks remain in `FEATURE_PLAN.md`.
 
 ## Child DOX Index

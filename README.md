@@ -161,6 +161,8 @@ Default browser debugging controls actual mpv playback through Bun. Native windo
 
 Only Android CI is active for now. Web and desktop jobs remain defined but are temporarily skipped with job-level conditions, so no PWA or desktop artifacts are built. The Android job runs `bun run check`, prepares the native player overlay, and builds a debug APK. Download the Android APK from the run's **Artifacts** section; retention is 14 days. It uses the runner's generated debug key, not a stable distribution key.
 
+Gradle dependencies and wrapper distributions use the GitHub Actions cache. Pull requests read it; trusted manual/tag jobs can update it. A Maven Central HTTP 429 during Gradle configuration gets at most three attempts, with 60- and 120-second pauses. Compilation and test failures stop immediately. Persistent repository throttling can still fail the job; wait before a later run rather than clearing the cache or changing dependency versions.
+
 CI uses read-only repository access and no custom secrets. After this updated workflow reaches GitHub, start a run at the updated commit; rerunning an older run uses its older workflow definition. A successful remote Android run is still pending. There are no release-publication jobs: this workflow does not publish a GitHub Release, deploy a PWA, or build iOS. Rachana's release destination and Pages settings are not inherited.
 
 ## Data portability and synchronization
