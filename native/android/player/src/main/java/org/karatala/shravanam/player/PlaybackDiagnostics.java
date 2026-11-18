@@ -19,7 +19,6 @@ import androidx.annotation.OptIn;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.datasource.HttpDataSource;
-import com.yausername.youtubedl_android.YoutubeDL;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Set;
@@ -53,11 +52,11 @@ final class PlaybackDiagnostics {
             app = info.versionName + " (" + (Build.VERSION.SDK_INT >= 28 ? info.getLongVersionCode() : info.versionCode) + "), installed " + DiagnosticLog.timestamp(info.lastUpdateTime);
         } catch (Exception failure) { app = "version unavailable"; }
         String extractor;
-        try { extractor = YoutubeDL.INSTANCE.version(context); }
+        try { extractor = YouTubeRuntime.description(context); }
         catch (Exception failure) { extractor = "version unavailable"; }
         return DiagnosticLog.redact("Shravanam Android diagnostics\nReport: " + DiagnosticLog.timestamp(System.currentTimeMillis()) + "\nAPK: " + app + "\nDebug: " + enabled(context)
             + "\nAndroid: " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")\nDevice: " + Build.MANUFACTURER + " " + Build.MODEL
-            + "\nABI: " + TextUtils.join(", ", Build.SUPPORTED_ABIS) + "\nMedia3: 1.11.1\nyoutubedl-android: 0.18.1\nyt-dlp: " + (extractor == null ? "bundled version not reported" : extractor)
+            + "\nABI: " + TextUtils.join(", ", Build.SUPPORTED_ABIS) + "\nMedia3: 1.11.1\nyoutubedl-android: 0.18.1\nyt-dlp: " + extractor
             + "\nMemory log, cleared when the app process exits. URLs, paths and credentials omitted.\n\n") + LOG.report();
     }
 

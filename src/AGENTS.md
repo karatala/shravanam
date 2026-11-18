@@ -50,6 +50,7 @@
 - Android uses the native service through the plugin and does not create a browser media element for playback. Use the system picker; receive shared files in native code. Show temporary file access and independent video failures explicitly. Native connection failures must not silently switch to website playback.
 - Explain `player-closed` as stopped playback or a closed player, with Play to reopen at the saved position. Do not suggest changing the media format for this state.
 - Native player state is authoritative. Stop polling when the document is hidden and refresh on return; visibility changes must not pause native playback.
+- When duration is unknown, keep the saved/current time label, show `--:--` for duration, and keep the disabled seek slider at zero. Do not clamp a nonzero saved time into a fake one-second range and display it as completed playback.
 - `FEATURE_PLAN.md` records playback, downloads, and background audio requirements. Resolve its open behavior choices before implementing the affected feature.
 
 ## Work Guidance

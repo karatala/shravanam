@@ -1,13 +1,13 @@
 package org.karatala.shravanam.player;
 
 import android.content.Context;
+import androidx.annotation.OptIn;
+import androidx.media3.common.util.UnstableApi;
 import com.yausername.youtubedl_android.YoutubeDL;
 import com.yausername.youtubedl_android.YoutubeDLRequest;
 import com.yausername.youtubedl_android.YoutubeDLResponse;
+import com.yausername.youtubedl_android.YoutubeDLException;
 import java.net.URI;
-import java.net.URL;
-import java.net.HttpURLConnection;
-import java.io.InputStream;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -18,8 +18,10 @@ import java.util.Map;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+@OptIn(markerClass = UnstableApi.class)
 final class YouTubeResolver {
     static final class UnsupportedLive extends Exception {}
+    private static final class UnavailableStream extends IOException { UnavailableStream(String message) { super(message); } }
     static final class Stream {
         final String url;
         final String title;
@@ -39,15 +41,26 @@ final class YouTubeResolver {
         PlaybackDiagnostics.initialize(context);
         String stage = video ? "youtube.video" : "youtube.audio";
         PlaybackDiagnostics.record(stage + ".init", processId);
-        try { YoutubeDL.INSTANCE.init(context.getApplicationContext()); }
+        try { YouTubeRuntime.initialize(context); }
         catch (LinkageError failure) { throw new IOException("Cannot initialize the packaged YouTube runtime", failure); }
+        try { return extract(context, source, processId, video, YouTubeRuntime.PRIMARY_CLIENT); }
+        catch (YoutubeDLException | UnavailableStream failure) {
+            if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
+            PlaybackDiagnostics.record(stage + ".client.fallback", processId + " visionOS unavailable; trying web_embedded", failure);
+            return extract(context, source, processId, video, YouTubeRuntime.FALLBACK_CLIENT);
+        }
+    }
+
+    private static Stream extract(Context context, YouTubeSource source, String processId, boolean video, String client) throws Exception {
+        String stage = video ? "youtube.video" : "youtube.audio";
         if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
         YoutubeDLRequest request = new YoutubeDLRequest(source.url);
+        YouTubeRuntime.configure(request, client);
         for (String option : new String[] { "--ignore-config", "--no-plugin-dirs", "--no-remote-components", "--no-cache-dir", "--no-playlist", "--no-check-formats", "--skip-download", "--dump-single-json" }) request.addOption(option);
         request.addOption("--socket-timeout", "15").addOption("--retries", "1").addOption("--extractor-retries", "1").addOption("-f", video ? "bestvideo[protocol=https][height<=1080]/best[protocol=https][height<=1080]" : "bestaudio[protocol=https]/best[protocol=https]");
         if (video) request.addOption("-S", "res:1080,vcodec:h264");
         if (PlaybackDiagnostics.enabled(context)) request.addOption("--verbose");
-        PlaybackDiagnostics.record(stage + ".extract", processId + " starting packaged yt-dlp; network timeout 15s");
+        PlaybackDiagnostics.record(stage + ".extract", processId + " client=" + client + "; network timeout 15s");
         YoutubeDLResponse response = YoutubeDL.INSTANCE.execute(request, processId);
         PlaybackDiagnostics.record(stage + ".extract.done", processId + " exit=" + response.getExitCode() + " elapsedMs=" + response.getElapsedTime() + "\n" + response.getErr());
         String output = response.getOut();
@@ -68,33 +81,14 @@ final class YouTubeResolver {
             try { alternative = stream(info, candidate, video); }
             catch (Exception failure) { continue; }
             if (!tried.add(alternative.url)) continue;
-            if (tried.size() > 6) throw new IOException("No available " + (video ? "video" : "audio") + " stream after 6 probes; see HTTP probe results");
+            if (tried.size() > 3) throw new UnavailableStream("No available " + (video ? "video" : "audio") + " stream after 3 probes; see HTTP probe results");
             if (available(alternative, stage, processId, tried.size())) return alternative;
         }
-        throw new IOException("No available " + (video ? "video" : "audio") + " stream after " + tried.size() + " probes; see HTTP probe results");
+        throw new UnavailableStream("No available " + (video ? "video" : "audio") + " stream after " + tried.size() + " probes; see HTTP probe results");
     }
 
     private static boolean available(Stream stream, String stage, String processId, int attempt) throws InterruptedException {
-        if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
-        HttpURLConnection connection = null;
-        try {
-            connection = (HttpURLConnection) new URL(stream.url).openConnection();
-            connection.setUseCaches(false);
-            connection.setInstanceFollowRedirects(false);
-            connection.setConnectTimeout(10000);
-            connection.setReadTimeout(10000);
-            for (Map.Entry<String, String> header : stream.headers.entrySet()) connection.setRequestProperty(header.getKey(), header.getValue());
-            connection.setRequestProperty("Range", "bytes=0-0");
-            int status = connection.getResponseCode();
-            PlaybackDiagnostics.record(stage + ".probe", processId + " attempt=" + attempt + " HTTP " + status);
-            if (status != 200 && status != 206) return false;
-            try (InputStream input = connection.getInputStream()) {
-                boolean readable = input.read() >= 0;
-                PlaybackDiagnostics.record(stage + ".probe.done", processId + " attempt=" + attempt + " readable=" + readable);
-                return readable;
-            }
-        } catch (IOException failure) { PlaybackDiagnostics.record(stage + ".probe.failed", processId + " attempt=" + attempt, failure); return false; }
-        finally { if (connection != null) connection.disconnect(); }
+        return YouTubeHttp.available(YouTubeHttp.factory(stream.headers, stage + ".probe").createDataSource(), stream.url, stage, processId, attempt);
     }
 
     static Stream parse(String output, YouTubeSource source) throws Exception {

@@ -1,0 +1,8 @@
+This APK includes the unmodified official yt-dlp 2026.10.26 zipimport distribution.
+Source and release: https://github.com/yt-dlp/yt-dlp/releases/tag/2026.10.26
+SHA-256: e51e69e89489f199530f13d32a4342da3ddb2cf34842f364603a066db05afbf3
+
+The archive includes yt-dlp-ejs 0.8.0 from https://github.com/yt-dlp/ejs/tree/0.8.0.
+The yt-dlp and EJS Unlicense texts accompany this notice.
+The unchanged EJS solver includes the ISC notice for meriyah 6.1.4 and the MIT
+notice for astring 1.9.0 at the start of yt_dlp_ejs/yt/solver/lib.min.js.

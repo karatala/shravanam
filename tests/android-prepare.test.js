@@ -114,6 +114,11 @@ test("standard Android preparation includes runtime server settings and the debu
   expect(await readFile(join(modulePath, "src/main/res/layout/shravanam_video.xml"), "utf8")).toContain('app:surface_type="texture_view"');
   expect(await readFile(join(directory, "android/app/build.gradle"), "utf8")).toContain("useLegacyPackaging = true");
   expect(await Bun.file(join(modulePath, "src/main/java/org/karatala/shravanam/player/YouTubeResolver.java")).exists()).toBe(true);
+  for (const name of ["YouTubeRuntime", "YouTubeHttp"]) expect(await Bun.file(join(modulePath, `src/main/java/org/karatala/shravanam/player/${name}.java`)).exists()).toBe(true);
+  for (const name of ["YouTubeRuntimeTest", "YouTubeHttpTest"]) expect(await Bun.file(join(modulePath, `src/test/java/org/karatala/shravanam/player/${name}.java`)).exists()).toBe(true);
+  expect(await readFile(join(modulePath, "src/main/res/raw/shravanam_ytdlp.zip"))).toEqual(await readFile("native/android/player/src/main/res/raw/shravanam_ytdlp.zip"));
+  expect(JSON.parse(await readFile(join(modulePath, "src/main/res/raw/shravanam_extractor.json"), "utf8")).version).toBe("2026.10.26");
+  expect(await Bun.file(join(modulePath, "src/main/assets/licenses/yt-dlp-NOTICE.txt")).exists()).toBe(true);
   expect(await Bun.file(join(modulePath, "src/main/java/org/karatala/shravanam/player/DevelopmentServer.java")).exists()).toBe(true);
   expect(await Bun.file(join(modulePath, "src/test/java/org/karatala/shravanam/player/DevelopmentServerUrlTest.java")).exists()).toBe(true);
   expect(await Bun.file(join(modulePath, "src/test/java/org/karatala/shravanam/player/SystemControlsTest.java")).exists()).toBe(true);

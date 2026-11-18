@@ -25,7 +25,6 @@ import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.datasource.DefaultDataSource;
-import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.ui.PlayerView;
@@ -257,7 +256,7 @@ public final class NativeVideoActivity extends AppCompatActivity {
         try {
             MediaItem item = new MediaItem.Builder().setMediaId(file.id).setUri(localUri != null ? localUri : stream == null ? file.uri : Uri.parse(stream.url)).build();
             DefaultMediaSourceFactory factory = new DefaultMediaSourceFactory(this);
-            if (stream != null) factory.setDataSourceFactory(new DefaultDataSource.Factory(this, new DefaultHttpDataSource.Factory().setDefaultRequestProperties(stream.headers)));
+            if (stream != null) factory.setDataSourceFactory(new DefaultDataSource.Factory(this, YouTubeHttp.factory(stream.headers, "youtube.video")));
             this.video.setMediaSource(factory.createMediaSource(item), Math.max(0, this.audio.getCurrentPosition()));
             this.video.prepare();
         } catch (RuntimeException failure) { PlaybackDiagnostics.record("video.prepare.failed", "Cannot prepare secondary renderer", failure); this.videoFailed(); }

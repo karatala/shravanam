@@ -26,6 +26,7 @@ import com.yausername.ffmpeg.FFmpeg;
 import com.yausername.youtubedl_android.YoutubeDL;
 import com.yausername.youtubedl_android.YoutubeDLRequest;
 import com.yausername.youtubedl_android.YoutubeDLResponse;
+import com.yausername.youtubedl_android.YoutubeDLException;
 import java.io.File;
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicLong;
@@ -43,6 +44,7 @@ public final class DownloadService extends Service {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private volatile boolean cancelled;
     private volatile boolean stopping;
+    private volatile boolean downloadStarted;
     private Thread task;
     private String jobId = "";
     private String processId = "";
@@ -144,24 +146,18 @@ public final class DownloadService extends Service {
         try {
             OfflineDownloads.Job job = this.store.job(this.jobId);
             File directory = this.store.directory(this.jobId);
-            YoutubeDL.INSTANCE.init(this.getApplicationContext());
+            YouTubeRuntime.initialize(this);
             FFmpeg.INSTANCE.init(this.getApplicationContext());
             this.checkCancelled();
-            YoutubeDLRequest request = new YoutubeDLRequest(job.source.url);
-            for (String option : new String[] { "--ignore-config", "--no-plugin-dirs", "--no-remote-components", "--no-cache-dir", "--no-playlist", "--no-check-formats", "--no-write-info-json", "--no-write-playlist-metafiles", "--no-write-thumbnail", "--no-write-subs", "--no-write-auto-subs", "--no-mtime", "--continue", "--part", "--newline", "--progress", "--no-simulate" }) request.addOption(option);
-            request.addOption("--socket-timeout", "15").addOption("--retries", "2").addOption("--fragment-retries", "2").addOption("--extractor-retries", "1")
-                .addOption("--match-filter", "!is_live & !is_upcoming").addOption("-f", DownloadProtocol.format(job.audioOnly, job.quality)).addOption("-o", new File(directory, "media.%(ext)s").getPath())
-                .addOption("--print", "before_dl:" + DownloadProtocol.TITLE + "%(title)j").addOption("--print", "after_move:" + DownloadProtocol.FILE + "%(filepath)j")
-                .addOption("--progress-template", "download:" + DownloadProtocol.PROGRESS + "%(progress.status)s|%(progress.downloaded_bytes)s|%(progress.total_bytes,progress.total_bytes_estimate)s|%(progress.eta)s|%(progress.speed)s|%(info.format_id)s")
-                .addOption("--progress-template", "postprocess:" + DownloadProtocol.FINISH + "%(progress.status)s").addOption("--progress-delta", "0.5");
-            if (job.audioOnly) request.addOption("--extract-audio").addOption("--audio-format", "best");
-            else request.addOption("--merge-output-format", "mkv").addOption("-S", "res:" + job.quality + ",vcodec:h264,acodec:aac");
-            if (PlaybackDiagnostics.enabled(this)) request.addOption("--verbose");
             PlaybackDiagnostics.record("download.extract.start", this.processId + " audioOnly=" + job.audioOnly + " quality=" + job.quality);
-            YoutubeDLResponse response = YoutubeDL.INSTANCE.execute(request, this.processId, false, (progress, eta, line) -> {
-                if (!this.cancelled && !this.stopping) this.output(line);
-                return Unit.INSTANCE;
-            });
+            YoutubeDLResponse response;
+            try { response = this.execute(this.request(job, directory, YouTubeRuntime.PRIMARY_CLIENT)); }
+            catch (YoutubeDLException failure) {
+                this.checkCancelled();
+                if (this.downloadStarted) throw failure;
+                PlaybackDiagnostics.record("download.client.fallback", this.processId + " visionOS extraction unavailable; trying web_embedded", failure);
+                response = this.execute(this.request(job, directory, YouTubeRuntime.FALLBACK_CLIENT));
+            }
             PlaybackDiagnostics.record("download.extract.done", this.processId + " exit=" + response.getExitCode() + "\n" + response.getErr());
             this.checkCancelled();
             for (String line : response.getOut().split("\\r?\\n")) {
@@ -196,10 +192,33 @@ public final class DownloadService extends Service {
 
     private void output(String line) {
         try {
-            if (line.startsWith(DownloadProtocol.TITLE)) this.store.title(this.jobId, DownloadProtocol.string(line.substring(DownloadProtocol.TITLE.length())));
-            else if (line.startsWith(DownloadProtocol.PROGRESS)) this.store.progress(this.jobId, new DownloadProtocol.Progress(line.substring(DownloadProtocol.PROGRESS.length())));
+            if (line.startsWith(DownloadProtocol.TITLE)) { this.downloadStarted = true; this.store.title(this.jobId, DownloadProtocol.string(line.substring(DownloadProtocol.TITLE.length()))); }
+            else if (line.startsWith(DownloadProtocol.PROGRESS)) { this.downloadStarted = true; this.store.progress(this.jobId, new DownloadProtocol.Progress(line.substring(DownloadProtocol.PROGRESS.length()))); }
             else if (line.startsWith(DownloadProtocol.FINISH)) this.store.finishing(this.jobId);
         } catch (Exception failure) { PlaybackDiagnostics.record("download.progress.invalid", "Ignored an invalid structured progress record", failure); }
+    }
+
+    private YoutubeDLRequest request(OfflineDownloads.Job job, File directory, String client) {
+        YoutubeDLRequest request = new YoutubeDLRequest(job.source.url);
+        YouTubeRuntime.configure(request, client);
+        for (String option : new String[] { "--ignore-config", "--no-plugin-dirs", "--no-remote-components", "--no-cache-dir", "--no-playlist", "--no-check-formats", "--no-write-info-json", "--no-write-playlist-metafiles", "--no-write-thumbnail", "--no-write-subs", "--no-write-auto-subs", "--no-mtime", "--continue", "--part", "--newline", "--progress", "--no-simulate" }) request.addOption(option);
+        request.addOption("--socket-timeout", "15").addOption("--retries", "2").addOption("--fragment-retries", "2").addOption("--extractor-retries", "1")
+            .addOption("--match-filter", "!is_live & !is_upcoming").addOption("-f", DownloadProtocol.format(job.audioOnly, job.quality)).addOption("-o", new File(directory, "media.%(ext)s").getPath())
+            .addOption("--print", "before_dl:" + DownloadProtocol.TITLE + "%(title)j").addOption("--print", "after_move:" + DownloadProtocol.FILE + "%(filepath)j")
+            .addOption("--progress-template", "download:" + DownloadProtocol.PROGRESS + "%(progress.status)s|%(progress.downloaded_bytes)s|%(progress.total_bytes,progress.total_bytes_estimate)s|%(progress.eta)s|%(progress.speed)s|%(info.format_id)s")
+            .addOption("--progress-template", "postprocess:" + DownloadProtocol.FINISH + "%(progress.status)s").addOption("--progress-delta", "0.5");
+        if (job.audioOnly) request.addOption("--extract-audio").addOption("--audio-format", "best");
+        else request.addOption("--merge-output-format", "mkv").addOption("-S", "res:" + job.quality + ",vcodec:h264,acodec:aac");
+        if (PlaybackDiagnostics.enabled(this)) request.addOption("--verbose");
+        return request;
+    }
+
+    private YoutubeDLResponse execute(YoutubeDLRequest request) throws Exception {
+        this.checkCancelled();
+        return YoutubeDL.INSTANCE.execute(request, this.processId, false, (progress, eta, line) -> {
+            if (!this.cancelled && !this.stopping) this.output(line);
+            return Unit.INSTANCE;
+        });
     }
 
     private void finishIndex(String id, String status, String error, File file) {

@@ -265,8 +265,8 @@
   {#if current}
     <div class="timeline">
       <span>{formatTime(playback.time)}</span>
-      <input aria-label={text("Playback position", "Позиция воспроизведения")} type="range" min="0" max={playback.duration || 1} step="0.1" value={playback.time} disabled={!playback.duration || playback.loading} onchange={event => command({ type: "seek", time: Number(event.currentTarget.value) })} />
-      <span>{formatTime(playback.duration)}</span>
+      <input aria-label={text("Playback position", "Позиция воспроизведения")} type="range" min="0" max={playback.duration || 1} step="0.1" value={playback.duration > 0 ? Math.min(playback.time, playback.duration) : 0} disabled={!playback.duration || playback.loading} onchange={event => command({ type: "seek", time: Number(event.currentTarget.value) })} />
+      <span>{playback.duration > 0 ? formatTime(playback.duration) : "--:--"}</span>
     </div>
   {/if}
   <div class="controls">

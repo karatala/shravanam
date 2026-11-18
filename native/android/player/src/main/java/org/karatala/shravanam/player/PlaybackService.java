@@ -747,7 +747,7 @@ public final class PlaybackService extends MediaSessionService {
                         long start = followCurrentClock ? Math.max(0, this.player.getCurrentPosition()) : position;
                         if (local != null) this.player.setMediaItem(item, start);
                         else {
-                            DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory().setDefaultRequestProperties(stream.headers);
+                            DefaultHttpDataSource.Factory http = YouTubeHttp.factory(stream.headers, "youtube.audio");
                             DefaultMediaSourceFactory factory = new DefaultMediaSourceFactory(this).setDataSourceFactory(new DefaultDataSource.Factory(this, http));
                             ((ExoPlayer) this.player).setMediaSource(factory.createMediaSource(item), start);
                         }
