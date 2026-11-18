@@ -10,7 +10,8 @@
 - `launch.json` follows Rachana's `node-terminal` pattern and runs the selected Bun script from the workspace root.
 - `Debug Desktop` / `Dev Desktop` run `bun run dev:desktop`: build development assets with source maps, open the system WebView with DevTools, and create the native tray. Use port 47870 and the normal `Shravanam` profile. Close an existing desktop instance first; otherwise single-instance delivery uses that existing host. Restart after source changes.
 - `Debug app` / `Dev` use Bun-owned mpv playback. `Debug Web (PWA)` / `Dev Web (PWA)` run `bun run dev:web` for the standalone browser adapter. Both use port 3000; run only one at a time.
-- `Debug Android LAN` / `Dev Android LAN` run `bun run dev:android` on port 3001. This serves only development web assets over the LAN and reloads connected interfaces after successful builds. Install the GitHub debug APK once and select the printed address with its native Server button, or prepare/build a local debug app in Android Studio. It uses Android native playback and never connects to desktop mpv. The terminal launch does not build, install, or open an APK.
+- `Debug Android LAN` / `Dev Android LAN` run `bun run dev:android` on port 3001. This serves only development web assets over the LAN and reloads connected interfaces after successful builds. Install a debug APK and select the printed address with its native Server button. It uses Android native playback and never connects to desktop mpv. The terminal launch does not build, install, or open an APK.
+- `Deploy Android Dev` runs `bun run android:deploy --alongside`. It builds and installs the local `Shravanam Dev` debug copy on a connected ADB device. Set `ANDROID_SERIAL` before starting VS Code if several devices are connected.
 
 ## Local Contracts
 

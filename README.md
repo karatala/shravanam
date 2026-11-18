@@ -33,6 +33,7 @@ Run these commands when you want to install, check, or build the base:
 | `bun run build:desktop` | Build web files and an unsigned native executable for the current system in `release` |
 | `bun run prepare:android` | Build bundled web files, remove the build-time server URL, sync Capacitor, and apply the Android player module |
 | `bun run prepare:android:dev` | Prepare Android to load UI from the LAN server; accepts `--url http://192.168.1.10:3001` |
+| `bun run android:deploy [--alongside]` | Build the local debug APK and install or update it on an ADB device |
 | `bun run prepare:ios` | Build web files, create the iOS project if needed, and sync Capacitor |
 | `bun run open:android` / `bun run open:ios` | Open the generated native project in its IDE |
 
@@ -124,11 +125,22 @@ The mobile application ID is `org.karatala.shravanam`. Mobile preparation does n
 
 PWA URLs are relative, so the output can be hosted at a root or a subpath. No publication destination is configured. See [LOCAL_OFFLINE.md](LOCAL_OFFLINE.md).
 
+## Install Android updates from the computer
+
+Install the Bun dependencies and set up Android Studio with a JDK 21, Android SDK Platform 36, Build Tools 36.0.0, and Platform-Tools. The deploy command can find the default SDK and Android Studio JDK locations. For custom locations set `ANDROID_HOME` to the SDK and `JAVA_HOME` to the JDK. Restart the terminal after changing them.
+
+Connect the phone with USB debugging, or pair it once through **Wireless debugging** in Android Studio. Keep the phone and computer on the same network for Wi-Fi. Check that the phone is listed as `device` by `adb devices`. If several devices are ready, set `ANDROID_SERIAL` to the phone's listed serial. [Android device setup](https://developer.android.com/studio/run/device)
+
+- `bun run android:deploy` bundles the current interface, applies the native source overlay, builds the debug APK and installs it on the phone. Gradle reuses its local build cache. Repeat the command after native changes. Local edits are included directly.
+- `bun run android:deploy --alongside`, or **Deploy Android Dev** in VS Code, installs **Shravanam Dev** beside a GitHub APK. The first run creates a separate app with its own positions, downloads and server setting. Later runs update that copy in place.
+
+Android preserves app data on updates with the same app ID and signing key. GitHub artifacts use the runner's debug key, which normally differs from the key on your computer. If the keys differ, the deploy command reports the failure and keeps the installed APK. Use the alongside option to retain the old app and data. Keep the local debug keystore between builds. [Android app signing](https://developer.android.com/studio/publish/app-signing)
+
 ## Android LAN development
 
 Android debug APKs include **Playback diagnostics** in Settings and a **Diagnostics** button beside playback errors. If the web interface does not work, use the native **Server → Playback diagnostics** button. Reproduce the error, open the report, and tap **Copy**. The report includes APK/device versions, extraction stages and stderr, HTTP probe status, and Media3 error codes with exception causes. Refresh updates the displayed report. Logs stay in process memory and reset when the process exits; URLs, paths, and credentials are removed before storage and Logcat (`ShravanamDebug`). A new APK is required for this native feature; reloading the LAN interface alone does not add it. Release APKs keep diagnostics disabled.
 
-Install the Android debug APK from GitHub once. It includes a native **Server** button at the top right, independent of the web interface. The phone and computer must use the same reachable Wi-Fi network. Allow Bun through the firewall for private networks on port 3001. Use this mode only for development on a trusted network.
+Install a debug APK locally or from GitHub once. It includes a native **Server** button at the top right, independent of the web interface. The phone and computer must use the same reachable Wi-Fi network. Allow Bun through the firewall for private networks on port 3001. Use this mode only for development on a trusted network.
 
 1. Run `bun run dev:android` and keep its terminal open. It prints the available LAN URLs and preparation commands. In VS Code, `Debug Android LAN` or `Dev Android LAN` starts the same server.
 2. In the debug app, tap **Server**, enter the printed Wi-Fi address, for example `http://192.168.1.10:3001`, and tap **Connect**. The address stays on this device across app restarts. Use the computer's LAN address: `127.0.0.1` on the phone refers to the phone.
@@ -153,7 +165,7 @@ After installing dependencies, select `Debug app` in Run and Debug, then press F
 
 Use either F5 or the `Dev` task to start the server, not both. Stop the server with Ctrl+C in its terminal. For a server started through `Dev`, you can also use `Tasks: Terminate Task`. Stop any other server on port 3000 before starting a new one. The Bun server does not accept Rachana's Vite `--host` argument.
 
-Shared tasks: `Dev Desktop`, `Dev`, `Dev Web (PWA)`, `Dev Android LAN`, `Check`, `Build`, `Preview`, `Run Desktop`, `Build Desktop`, `Prepare Android`, and `Open Android`. `Debug Web (PWA)` is the matching terminal launch for `dev:web`. `Preview` and `Run Desktop` first run `Build`. `Prepare Android` builds web output and syncs the native project; use `Open Android` afterward. Personal VS Code settings remain ignored.
+Shared tasks: `Dev Desktop`, `Dev`, `Dev Web (PWA)`, `Dev Android LAN`, `Check`, `Build`, `Preview`, `Run Desktop`, `Build Desktop`, `Prepare Android`, `Deploy Android Dev`, and `Open Android`. `Debug Web (PWA)` is the matching terminal launch for `dev:web`. `Preview` and `Run Desktop` first run `Build`. `Prepare Android` builds web output and syncs the native project; use `Open Android` afterward. Personal VS Code settings remain ignored.
 
 Default browser debugging controls actual mpv playback through Bun. Native window behavior, tray controls, global shortcuts, and Android background behavior need their own platform checks.
 

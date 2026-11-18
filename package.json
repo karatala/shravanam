@@ -15,6 +15,7 @@
     "build:desktop": "bun run build && bun scripts/build-desktop.js",
     "prepare:android": "bun run build && bun scripts/prepare-mobile.js android",
     "prepare:android:dev": "bun run build && bun scripts/prepare-mobile.js android --dev",
+    "android:deploy": "bun scripts/android-deploy.js",
     "prepare:ios": "bun run build && bun scripts/prepare-mobile.js ios",
     "open:android": "bunx --no-install cap open android",
     "open:ios": "bunx --no-install cap open ios"

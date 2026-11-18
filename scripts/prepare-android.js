@@ -15,6 +15,13 @@ export async function applyAndroidPlayer() {
     ["android/settings.gradle", "// Shravanam native player", "include ':shravanam-player'\nproject(':shravanam-player').projectDir = new File('./shravanam-player/')"],
     ["android/app/build.gradle", "// Shravanam native player", "dependencies { implementation project(':shravanam-player') }"],
     ["android/app/build.gradle", "// Shravanam extraction runtime", "android { packaging { jniLibs { useLegacyPackaging = true } } }"],
+    ["android/app/build.gradle", "// Shravanam local debug copy", `if (providers.gradleProperty('shravanamAlongside').getOrNull() == 'true') {
+    android.buildTypes.debug {
+        applicationIdSuffix '.dev'
+        resValue 'string', 'app_name', 'Shravanam Dev'
+        resValue 'string', 'title_activity_main', 'Shravanam Dev'
+    }
+}`],
   ];
   for (const [filename, marker, content] of entries) {
     const source = await readFile(filename, "utf8");

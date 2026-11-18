@@ -92,6 +92,15 @@
       "group": "build"
     },
     {
+      "label": "Deploy Android Dev",
+      "type": "process",
+      "command": "bun",
+      "args": ["run", "android:deploy", "--alongside"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
       "label": "Open Android",
       "type": "process",
       "command": "bun",

@@ -137,4 +137,7 @@ test("standard Android preparation includes runtime server settings and the debu
   expect(await readFile(join(modulePath, "src/main/res/values/strings.xml"), "utf8")).toContain('name="shravanam_download_channel"');
   expect(await readFile(join(modulePath, "src/main/res/values-ru/strings.xml"), "utf8")).toContain('name="shravanam_download_channel"');
   expect(await readFile(join(directory, "android/app/src/main/java/org/karatala/shravanam/MainActivity.java"), "utf8")).toContain("DevelopmentServer.configuration(this)");
+  const appGradle = await readFile(join(directory, "android/app/build.gradle"), "utf8");
+  expect(appGradle).toContain("providers.gradleProperty('shravanamAlongside').getOrNull() == 'true'");
+  expect(appGradle).toContain("applicationIdSuffix '.dev'");
 });

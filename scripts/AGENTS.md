@@ -16,6 +16,7 @@
 - `build-desktop.js` embeds the current asset list and the platform WebviewJS addon. On macOS it compiles the document launcher and packages the Bun host as `ShravanamHost`.
 - `desktop-associations.js` generates macOS media document declarations and optional Windows/Linux Open With registration output. Packaging does not execute registration or change defaults.
 - `prepare-mobile.js` creates and syncs the requested Capacitor target.
+- `android-deploy.js` builds current local sources through `prepare:android` and the Gradle wrapper, then updates one authorized ADB device over USB or Wi-Fi. Use `ANDROID_SERIAL` to select a device when several are connected. Install with `adb install -r` to preserve app data. On a signing mismatch, report it and keep the installed app. `--alongside` changes only the local debug app ID and label to `org.karatala.shravanam.dev` and `Shravanam Dev`. That copy uses separate Android app storage. Use Gradle's normal local debug signing.
 - `android-gradle.js` is the Linux Android CI entry point after preparation. Stream wrapper output, retain bounded tails for classification, use two workers, and retry only Maven Central HTTP 429 during configuration before tasks start. Three attempts with 60/120-second pauses preserve cached downloads and the real failure exit code. Code/test errors and other failures stop immediately.
 - `prepare-mobile.js android --dev` accepts `--url http://192.168.1.10:3001` or `SHRAVANAM_ANDROID_DEV_URL`. Pass the selected URL only to Capacitor child commands. Normal Android/iOS preparation removes this environment value before sync. Debug APKs can select a server or bundled files at runtime through their native Server control; that device-local selection takes priority over the build-time URL. Standard preparation does not clear device preferences. `capacitor.config.ts` contains no saved development address.
 - `prepare-android.js` applies the versioned Android player library and MainActivity after sync, including its debug manifest, native server settings, private video/browser Activities, and video TextureView layout. It generates media-type metadata from `src/playback.ts` and adds each Gradle link once. All Android debug APKs include the runtime server selector without a build-time address.
@@ -29,7 +30,7 @@
 - Inject the per-run Bun bridge configuration only in development HTML responses. Do not write it into build output or service-worker caches. Validate the request host, prevent framing of the control page, and never allow cross-origin control requests. Restart the terminal after host/script changes; frontend source changes still use the existing rebuild watcher.
 - Route `/__sources` and player/library/sleep methods through the authenticated desktop browser host. Allow bounded request bodies up to 34 MiB for a normalized library archive of at most 16 MiB plus JSON escaping. Validate each command separately; userscripts remain limited to 128 KiB. `?tool=sources` selects the native website window's local toolbar and receives its own native source/window bridge, never a bridge in the website view.
 - The production asset list excludes stale output, documentation, source maps, and the worker itself. Never cache audio through the shell worker.
-- Keep signing and publication outside these scripts. Android preparation includes the background-player source; it does not build an APK or establish device support.
+- Keep distribution signing and publication outside these scripts. Android preparation includes the background-player source. Preparation alone does not build an APK or establish device support.
 - Generated iOS and Android projects remain ignored. Durable native changes belong in versioned source overlays. Edit `native/android` instead of generated copies. Run `prepare:android` after native source edits; bare `cap sync` does not apply those edits.
 - Run install, build, packaging, and native preparation commands only when requested.
 
@@ -38,6 +39,7 @@
 ## Verification
 
 - `bun test tests/android-gradle.test.js` checks retry/backoff and immediate failure with injected process results, plus workflow cache/order and paused targets. It does not run a native build or access Maven.
+- `bun test tests/android-deploy.test.js` checks local build and ADB command order, explicit device selection, and safe failure. It uses simulated process results and installs nothing.
 - `bun test tests/android-dev.test.js tests/android-prepare.test.js` checks LAN serving, desktop API isolation, successful/failed rebuild revisions, URL validation, remote/bundled preparation environments, private video/browser Activity/layout copying, localized notification resources, the headset-resumption receiver, and native system-control/resumption test copying. These checks use temporary fixtures and do not build the app or prepare native targets. Phone checks remain in `FEATURE_PLAN.md`.
 
 ## Child DOX Index
